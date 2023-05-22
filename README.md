@@ -27,7 +27,7 @@ cd code
 
 1. Have Alpaca compliant equipment or simulators active in your local network. 
 2. Edit the config file `config/<observatory-name>.yml` to specify the observatory parameters and equipment's connection with Alpaca. See `config/Io.yml` as an example.
-3. Have a schedule file `schedule/<observatory-name>.csv` ready to be used. See `schedules/Io.yml` as an example.
+3. Have a schedule file `schedule/<observatory-name>.csv` ready to be used. See `schedules/Io.csv` as an example.
 4. Then run the following commands to start Astra:
 
 ```
