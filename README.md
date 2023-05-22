@@ -38,7 +38,9 @@ uvicorn main:app --reload --port 8000
 
 5. Open the browser and go to `http://localhost:8000/` to access Astra.
 
-![Screenshot of Astra's frontend](screenshot.png)
+Below is a screenshot of Astra running a set of schedules for the telescopes Io and Ganymede:
+
+![Screenshot of Astra's frontend running a schedule](screenshot.png)
 
 ## Contributing
 
