@@ -15,7 +15,7 @@ from alpaca.safetymonitor import *
 from alpaca.switch import *
 from alpaca.telescope import *
 
-logging.basicConfig(format='%(levelname)s,%(asctime)s.%(msecs)03d,%(process)d,%(name)s,(%(filename)s:%(lineno)d),%(message)s', datefmt='%Y-%m-%d %H:%M:%S', level=logging.INFO)
+logging.basicConfig(format='%(levelname)s,%(asctime)s.%(msecs)03d,%(process)d,%(name)s,(%(filename)s:%(lineno)d),%(message)s', datefmt='%Y-%m-%d %H:%M:%S', level=logging.INFO, filename='../log/alpaca_device.log')
 logging.Formatter.converter = time.gmtime
 
 
@@ -77,10 +77,24 @@ class AlpacaDevice():
     def get(self, method):
         ## method getter
         try:
-            data = getattr(self.device, method)
+            # permit 3 attempts
+            data = None
+
+            for i in range(2):
+                try:
+                    if data is None:
+                        data = getattr(self.device, method)
+                except Exception as e:
+                    self.__log('warning', f'Get method failed with data {str(data)}: {self.device_type}, {self.device_name}, {method}, {str(e)}, trying again...')
+                    time.sleep(1)
+                    continue
+
+            if data is None:
+                data = getattr(self.device, method)
+
             return {"status" : "success", "data" : data, "message" : ""} # check if valid, need args?
         except Exception as e:
-            self.__log('error', f'Get method error: {self.device_type}, {self.device_name}, {method}, {str(e)}')
+            self.__log('error', f'Get method error with data {str(data)}: {self.device_type}, {self.device_name}, {method}, {str(e)}')
             return {"status" : "error", "data" : "null", "message" : f"Get method error: {str(e)}"} # check if valid, need args?
 
     def set(self, method, value):

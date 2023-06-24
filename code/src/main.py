@@ -3,12 +3,20 @@ import datetime
 import sqlite3
 from contextlib import asynccontextmanager
 from glob import glob
+from astropy.io import fits
+import os
+from PIL import Image
+import tempfile
 
 import pandas as pd
 from astra import Astra
+
+import uvicorn
 from fastapi import FastAPI, Request, WebSocket
 from fastapi.responses import FileResponse
 from fastapi.templating import Jinja2Templates
+
+
 
 frontend = Jinja2Templates(directory="frontend")
 observatories = {}
@@ -46,7 +54,30 @@ def format_time(time : datetime.datetime):
         return time.strftime("%H:%M:%S")
     except:
         return None
-    
+
+def convert_fits_to_jpg(fits_file):
+    # Open the FITS file
+    hdulist = fits.open(fits_file)
+
+    # Get the image data from the primary HDU
+    image_data = hdulist[0].data
+
+    # Normalize the image data to the 8-bit range (0-255)
+    normalized_data = (image_data - image_data.min()) * (255.0 / (image_data.max() - image_data.min()))
+
+    # Create an image from the normalized data
+    image = Image.fromarray(normalized_data.astype('uint8'))
+
+    # Save the image as a temporary file
+    with tempfile.NamedTemporaryFile(suffix='.jpg', delete=False) as temp_file:
+        temp_filename = temp_file.name
+        image.save(temp_filename, 'JPEG')
+
+    # Close the FITS file
+    hdulist.close()
+
+    # Return the temporary file path
+    return temp_filename
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -82,6 +113,22 @@ async def stop(observatory: str):
     obs.watchdog_running = False
 
     obs.error_free = True
+
+    return {"status": "success", "data": "null", "message": ""}
+
+@app.get("/api/abort_slew/{observatory}")
+async def abort_slew(observatory: str):
+    obs = observatories[observatory]
+
+    device_type = 'Telescope'
+    for device_name in obs.devices[device_type]:
+        r = obs.devices[device_type][device_name].get('AbortSlew')
+        
+        if r['status'] == 'success':
+            r['data']()
+            print(f"{device_type} {device_name} aborted slew")
+        else:
+            print(f"{device_type} {device_name} failed to abort slew")
 
     return {"status": "success", "data": "null", "message": ""}
 
@@ -433,9 +480,23 @@ async def websocket_endpoint(websocket: WebSocket, observatory: str):
 
         log = []
 
+        images = glob('../images/*/*.fits')
+        # images.sort(key=os.path.getmtime)
+        last_image = "https://picsum.photos/200"
+
+        # need to make faster/accessible to fastapi -- make it check image has not been converted already
+        # if len(images) > 0:
+        #     image = max(images, key=os.path.getctime)
+        #     try:
+        #         last_image = convert_fits_to_jpg(image)
+        #     except:
+        #         print("could not convert fits to jpg")
+        #         pass
+            
+
         data = {"table0" : table0,
                 "table1" : table1,
-                "last_image": {"url": "https://picsum.photos/200", "datetime": datetime.datetime.utcnow().isoformat()},
+                "last_image": {"url": last_image, "datetime": datetime.datetime.utcnow().isoformat()},
                 "log": log,
                 }
         # make temp image, say how many images have been made?
@@ -446,3 +507,6 @@ async def websocket_endpoint(websocket: WebSocket, observatory: str):
             print("socket closed")
             socket = False
         
+
+if __name__ == "__main__":
+    uvicorn.run(app, host="0.0.0.0", port=8000)

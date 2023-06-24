@@ -17,7 +17,7 @@ from sqlite3worker import Sqlite3Worker  # https://github.com/dashawn888/sqlite3
 
 logging.basicConfig(
     format='%(levelname)s,%(asctime)s.%(msecs)03d,%(process)d,%(name)s,(%(filename)s:%(lineno)d),%(message)s',
-    datefmt='%Y-%m-%d %H:%M:%S', level=logging.INFO)
+    datefmt='%Y-%m-%d %H:%M:%S', level=logging.INFO, filename='../log/astra.log')
 logging.Formatter.converter = time.gmtime
 
 def update_times(df, time_factor):
@@ -405,6 +405,7 @@ class Astra():
             else:
                 self.__log('info', 'Telescope already parked')
 
+            #TODO: check if dome telescope exists
             if dome_parked is False:
                 self.__log('warning', 'Closing dome')
             else:
@@ -416,6 +417,12 @@ class Astra():
                 self.__log('info', 'Dome shutter already closed')
 
         
+        # stop telescope traking
+        if 'Telescope' in self.observatory:
+            for d in self.devices['Telescope']:
+                device = self.devices['Telescope'][d]
+                device.set('Tracking', False)
+
         # stop telescope slewing
         r = self.monitor_run_action('Telescope', 'Slewing', False, 'AbortSlew')
         if r['status'] != 'success':
@@ -472,7 +479,7 @@ class Astra():
         schedule = schedule.sort_values(by=['start_time'])
 
         # for development
-        schedule = update_times(schedule, 100)
+        # schedule = update_times(schedule, 100)
         
         self.__log('info', 'Schedule read')
         return schedule
