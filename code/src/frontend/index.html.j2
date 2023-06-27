@@ -16,7 +16,13 @@
 
     <div class="flex flex-wrap h-screen items-center justify-center">
         {% for observatory in observatories %}
-        <div id="{{ observatory }}" class="flex flex-col w-[100%] h-[calc(100vw*5/3)] md:w-[50%] md:h-[calc(50vw*5/3)] lg:w-[40%] lg:h-[calc(40vw*5/3)] xl:w-[30%] xl:h-[calc(30vw*5/3)] 2xl:w-[20%] 2xl:h-[calc(20vw*5/3)] m-4 p-4 space-y-4 bg-slate-900/90 shadow-slate-950/50 shadow-xl rounded-xl">
+        <div id="{{ observatory }}" class="flex flex-col 
+        w-[100%] h-[calc(100vw*5/3)] 
+        md:w-[50%] md:h-[calc(50vw*5/3)] 
+        lg:w-[40%] lg:h-[calc(40vw*5/3)] 
+        xl:w-[30%] xl:h-[calc(30vw*5/3)] 
+        2xl:w-[20%] 2xl:h-[calc(20vw*5/3)] 
+        m-4 p-4 space-y-4 bg-slate-900/90 shadow-slate-950/50 shadow-xl rounded-xl">
             
             {# title #}
             <div class="flex-initial justify-left text-2xl">
@@ -459,34 +465,43 @@
                 let logDiv = document.getElementById("log-0-" + observatory);
                 let fragment = document.createDocumentFragment();
 
-                let content = JSON.parse(event.data);
-                content.forEach(function(item, index, array) {
+                let content = JSON.parse(event.data)
+                let log = content['log'];
+                log.forEach(function(item, index, array) {
                     let logMessage = document.createElement('div'); // create a p tag
                     logMessage.classList.add('px-3'); // add a class
                     logMessage.classList.add('py-1.5'); // add a class
                     logMessage.classList.add('grid'); // add a class
-                    logMessage.classList.add('grid-cols-4'); // add a class
+                    logMessage.classList.add('grid-cols-3'); // add a class
                     
                     if (item['level'] == 'warning') {
                         logMessage.classList.add('text-yellow-500'); // add a class
                     } else if (item['level'] == 'error') {
                         logMessage.classList.add('text-red-500'); // add a class
                     }
-                    logMessage.innerHTML = `<div class="col-span-1 proportional-nums tracking-wide">${item['datetime'].substring(10)}</div> <div class="col-span-3 italic">${item['message']}</div>`;
+                    logMessage.innerHTML = `<div class="col-span-1 proportional-nums tracking-wide">${item['datetime'].substring(10)}</div> <div class="col-span-2 italic">${item['message']}</div>`;
 
                     fragment.appendChild(logMessage);
                 });
                 logDiv.appendChild(fragment);
 
                 let element = document.getElementById("log-" + observatory);
-                if (element.classList.contains('underline')) {
+                if (element.classList.contains('underline') && log.length > 0) {
                     let div = document.getElementById("content-" + observatory)
                     div.scrollTop = div.scrollHeight;
                 }
+
+                if (scheduleLoadTime[observatory] < content['schedule_mtime']) {
+                    scheduleLoadTime[observatory] = content['schedule_mtime'];
+                    updateSchedule(observatory);
+                }
+
             }
         }
-        
 
+        let scheduleLoadTime = {}
+        let initialWeatherData = {}
+        
         {% for observatory in observatories %}
 
             // connect to websockets
@@ -500,20 +515,18 @@
                 connectWebSocket('ws://' + window.location.host + '/ws/log/' + '{{observatory}}', '{{observatory}}', 'log');
             }
 
-            
+            scheduleLoadTime['{{observatory}}'] = new Date().getTime()/1000;
+
             // update schedule table
             updateSchedule('{{observatory}}');
-
-            //setInterval(function() {
-            //    updateSchedule('{{observatory}}');
-            //}, 10000);
 
             // update weather chart
             updateWeatherChart('{{observatory}}', update=false);
 
+            // todo: move to websocket
             setInterval(function() {
                 updateWeatherChart('{{observatory}}', update=true);
-            }, 10000);
+            }, 60000);
             
         {% endfor %}
 

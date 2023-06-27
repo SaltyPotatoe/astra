@@ -9,6 +9,7 @@ import numpy as np
 import pandas as pd
 import utils
 import yaml
+import os
 from alpaca_device import AlpacaDevice
 from astropy.coordinates import EarthLocation, SkyCoord
 from astropy.io import fits
@@ -83,13 +84,17 @@ class Astra():
         
         self.observatory = self.read_config(config_filename)
         self.observatory_name = config_filename.split('/')[-1].split('.')[0]
-        self.devices = self.load_devices()
+
+        self.schedule_mtime = os.path.getmtime(f'../schedule/{self.observatory_name}.csv')
+        self.schedule = None
         self.schedule = self.read_schedule()
+
         self.fits_config = pd.read_csv('../config/fits_headers.csv')
+
+        self.devices = self.load_devices()
         self.last_image = None
 
         self.threads = []
-
 
         self.__log('info', 'Astra initialized')
     
@@ -325,6 +330,12 @@ class Astra():
         dome_shutter_closed = False
         
         while self.watchdog_running and self.error_free:
+
+            schedule_mtime = os.path.getmtime(f'../schedule/{self.observatory_name}.csv')
+
+            if schedule_mtime > self.schedule_mtime:
+                self.__log('warning', 'Schedule updated')
+                self.schedule = self.read_schedule()
             
             if 'SafetyMonitor' in self.observatory:
                 sm_poll = safety_monitor.poll_latest()
@@ -377,21 +388,21 @@ class Astra():
 
                     rows = self.cursor.execute("SELECT * FROM polling WHERE device_type = 'SafetyMonitor' AND device_value = 'False' AND datetime > datetime('now', '-1 minutes')")
 
-                    print("watchdog schedule", rows)
                     if self.schedule.iloc[-1]['end_time'] > datetime.utcnow():
 
                         self.__log('info', f"Watchdog: {len(rows)} instances of weather unsafe found in last 1 minutes")
 
                         # start schedule
                         if len(rows) == 0:
-
-                            # self.schedule = self.read_schedule() # uncomment for production?
+                            
+                            if self.debug is False:
+                                self.schedule = self.read_schedule()
 
                             self.schedule_running = True
                             th = Thread(target=self.run_schedule, daemon = True)
                             th.start()
                             self.threads.append({'type': 'run_schedule', 'device_name': 'Schedule', 'thread': th, 'id' : -2})
-                    
+
             time.sleep(0.5) # twice the safety monitor polling time
 
         self.watchdog_running = False
@@ -530,25 +541,36 @@ class Astra():
         '''
         # TODO: error handling, add schedule as string to log.db?
 
-        self.__log('info', 'Reading schedule')
+        schedule_mtime = os.path.getmtime(f'../schedule/{self.observatory_name}.csv')
 
-        schedule = pd.read_csv(f'../schedule/{self.observatory_name}.csv')
+        if (schedule_mtime > self.schedule_mtime) or (self.schedule is None):
 
-        schedule['start_time'] =  pd.to_datetime(schedule.start_time)
-        schedule['end_time'] = pd.to_datetime(schedule.end_time)
+            if self.schedule_running is True:
+                self.__log('warning', 'Schedule updating while previous schedule is running. This will not take effect until the new schedule is run.')
 
-        # sort by start_time
-        schedule = schedule.sort_values(by=['start_time'])
+            self.__log('info', 'Reading schedule')
 
-        # for development
-        if self.debug is True:
-            schedule = update_times(schedule, 100)
+            schedule = pd.read_csv(f'../schedule/{self.observatory_name}.csv')
+            schedule['start_time'] =  pd.to_datetime(schedule.start_time)
+            schedule['end_time'] = pd.to_datetime(schedule.end_time)
 
-        # make new column called repeatable, set to True
-        schedule['repeatable'] = True
-        
-        self.__log('info', 'Schedule read')
-        return schedule
+            # sort by start_time
+            schedule = schedule.sort_values(by=['start_time'])
+
+            # for development
+            if self.debug is True:
+                schedule = update_times(schedule, 100)
+
+            # make new column called repeatable, set to True
+            schedule['repeatable'] = True
+            
+            self.__log('info', 'Schedule read')
+
+            self.schedule_mtime = schedule_mtime
+
+            return schedule
+        else:
+            return self.schedule
 
     def run_schedule(self):
         '''

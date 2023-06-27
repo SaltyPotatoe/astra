@@ -28,6 +28,7 @@ observatories = {}
 fws = {}
 last_image = None
 last_image_jpg = None
+last_dateobs = None
 debug = False
 
 def load_observatories():
@@ -70,6 +71,7 @@ def convert_fits_to_jpg(fits_file, observatory):
     with fits.open(fits_file) as hdulist:
         # Get the image data from the primary HDU
         image_data = hdulist[0].data
+        dateobs = hdulist[0].header['DATE-OBS']
 
     # Normalize the image data to the 8-bit range (0-255)
     normalized_data = (image_data - image_data.min()) * (255.0 / (image_data.max() - image_data.min()))
@@ -85,7 +87,7 @@ def convert_fits_to_jpg(fits_file, observatory):
     filename = './frontend/' + fits_file.split('/')[-1].split('.')[0] + '.jpg'
     image.save(filename)
 
-    return filename
+    return filename, dateobs
 
 
 @asynccontextmanager
@@ -164,13 +166,6 @@ async def schedule(observatory: str):
 
     return schedule.to_dict(orient='records')
 
-@app.get("/api/read_schedule/{observatory}")
-async def read_schedule(observatory: str):
-    obs = observatories[observatory]
-    obs.schedule = obs.read_schedule()
-
-    return {"status": "success", "data": "null", "message": ""}
-
 @app.get("/api/db/polling/{observatory}/{device_type}")
 async def polling(observatory: str, device_type: str):
     
@@ -200,6 +195,8 @@ async def polling(observatory: str, device_type: str):
 @app.websocket("/ws/log/{observatory}")
 async def websocket_log(websocket: WebSocket, observatory: str):
     await websocket.accept()
+    obs = observatories[observatory]
+
     db = sqlite3.connect('../log/' + observatory + '.db')
     
     q = """SELECT * FROM log WHERE datetime > datetime('now', '-1 day')"""
@@ -207,12 +204,16 @@ async def websocket_log(websocket: WebSocket, observatory: str):
 
     last_time = initial_df.datetime.iloc[-1]
 
-    initial_data = initial_df.to_dict(orient='records')
+    initial_log = initial_df.to_dict(orient='records')
     
+    data_dict = {}
+    data_dict['log'] = initial_log
+    data_dict['schedule_mtime'] = obs.schedule_mtime
+
     socket = True
 
     try:
-        await websocket.send_json(initial_data)
+        await websocket.send_json(data_dict)
         await asyncio.sleep(1)
     except:
         print("log socket closed")
@@ -220,18 +221,20 @@ async def websocket_log(websocket: WebSocket, observatory: str):
 
     while socket:
 
-        if len(initial_data) > 0:
+        if len(initial_log) > 0:
             q = f"""SELECT * FROM log WHERE datetime > '{last_time}'"""
         
         df = pd.read_sql_query(q, db)
         data = df.to_dict(orient='records')
 
+        data_dict = {}
+        data_dict['log'] = data
+        data_dict['schedule_mtime'] = obs.schedule_mtime
+
         try:
             if len(data) > 0:
                 last_time = df.datetime.iloc[-1]
-                await websocket.send_json(data)
-            else:
-                await websocket.send_json({})
+            await websocket.send_json(data_dict)
             await asyncio.sleep(1)
         except:
             db.close()
@@ -323,7 +326,7 @@ async def websocket_weather(websocket: WebSocket, observatory: str):
         
 @app.websocket("/ws/{observatory}")
 async def websocket_endpoint(websocket: WebSocket, observatory: str):
-    global last_image, last_image_jpg
+    global last_image, last_image_jpg, last_dateobs
 
     await websocket.accept()
 
@@ -355,12 +358,6 @@ async def websocket_endpoint(websocket: WebSocket, observatory: str):
                             polled_list[device_type][device_name][k] = {}
                             polled_list[device_type][device_name][k]['value'] = polled['data'][k]['value']
                             polled_list[device_type][device_name][k]['datetime'] = polled['data'][k]['datetime']
-
-        # TODO: need to make it less CPU intensive if multiple clients
-        if last_image is not obs.last_image:
-            last_image = obs.last_image
-            last_image_jpg = convert_fits_to_jpg(last_image, observatory)
-
 
         table0 = []
         table1 = [{"item": "error free" , "value" : obs.error_free},
@@ -581,10 +578,18 @@ async def websocket_endpoint(websocket: WebSocket, observatory: str):
 
                 table0.append({"item": device_type, "name": device_name, "status": status, "valid": valid, "last_update": f'{last_update:.0f} s ago', "polled": polled})
 
+        if last_image_jpg is None:
+            # use placeholder image
+            last_image_jpg = "https://upload.wikimedia.org/wikipedia/commons/thumb/a/ac/No_image_available.svg/600px-No_image_available.svg.png"
+
+        # TODO: need to make it less CPU intensive if multiple clients
+        if last_image is not obs.last_image:
+            last_image = obs.last_image
+            last_image_jpg, last_dateobs = convert_fits_to_jpg(last_image, observatory)
 
         data = {"table0" : table0,
                 "table1" : table1,
-                "last_image": {"url": last_image_jpg, "datetime": datetime.datetime.utcnow().isoformat()}
+                "last_image": {"url": last_image_jpg, "dateobs": last_dateobs}
                 }
         
         # make temp image, say how many images have been made?
