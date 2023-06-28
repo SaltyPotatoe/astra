@@ -8,10 +8,11 @@
     <script src="https://cdn.plot.ly/plotly-2.20.0.min.js" charset="utf-8"></script>
     <link rel="icon" href="favicon.svg">
 </head>
-<body class="bg-slate-600 text-slate-100 select-none w-full h-full ">
+<body class="bg-black text-slate-100 select-none w-full h-full ">
     {% set navigation = ['Summary', 'Schedule', 'Log', 'Controls'] %}
 
-    <div id="popup" class="absolute hidden rounded-md p-2 shadow-md bg-slate-900 text-sm opacity-90 whitespace-break-spaces z-10"></div>
+    <div id="popup" class="absolute hidden rounded-md p-2 shadow-md bg-black/90 text-sm opacity-90 whitespace-break-spaces z-10"></div>
+    <div id="popup_imageinfo" class="absolute hidden rounded-md p-2 shadow-md bg-black/90 text-sm opacity-90 whitespace-break-spaces z-10"></div>
 
 
     <div class="flex flex-wrap h-screen items-center justify-center">
@@ -21,11 +22,11 @@
         md:w-[50%] md:h-[calc(50vw*5/3)] 
         lg:w-[40%] lg:h-[calc(40vw*5/3)] 
         xl:w-[30%] xl:h-[calc(30vw*5/3)] 
-        2xl:w-[20%] 2xl:h-[calc(20vw*5/3)] 
-        m-4 p-4 space-y-4 bg-slate-900/90 shadow-slate-950/50 shadow-xl rounded-xl">
+        2xl:w-[22%] 2xl:h-[calc(22vw*5/3)] 
+        m-4 p-4 space-y-4 bg-white/10 shadow-slate-950/50 shadow-xl rounded-xl">
             
             {# title #}
-            <div id="title-{{ observatory }}" class="flex-initial justify-left text-2xl">
+            <div id="title-{{ observatory }}" class="flex-initial justify-left text-3xl font-bold">
                 {{ observatory }}
             </div>
                 
@@ -64,26 +65,21 @@
                             </table>
                             
                             <div class="flex flex-row justify-center items-center">
-                            {# add image #}
-                                <div class="flex justify-center basis-1/2 mr-2">
+                            {# lastest image #}
+                                <div id="summary-last-image-parent-{{ observatory }}" class="flex justify-center basis-1/2 mr-2">
                                         <img id="summary-last-image-{{ observatory }}" alt="lastest image" class="object-contain h-full w-full hidden">
                                         <svg xmlns="http://www.w3.org/2000/svg" id="summary-last-image-placeholder-{{ observatory }}" viewBox="0 0 24 24" fill="currentColor" class="w-full p-12 opacity-20">
                                             <path fill-rule="evenodd" d="M1.5 6a2.25 2.25 0 012.25-2.25h16.5A2.25 2.25 0 0122.5 6v12a2.25 2.25 0 01-2.25 2.25H3.75A2.25 2.25 0 011.5 18V6zM3 16.06V18c0 .414.336.75.75.75h16.5A.75.75 0 0021 18v-1.94l-2.69-2.689a1.5 1.5 0 00-2.12 0l-.88.879.97.97a.75.75 0 11-1.06 1.06l-5.16-5.159a1.5 1.5 0 00-2.12 0L3 16.061zm10.125-7.81a1.125 1.125 0 112.25 0 1.125 1.125 0 01-2.25 0z" clip-rule="evenodd" />
                                         </svg>
                                 </div>
 
-                                <div class="basis-1/2 ml-2">
-                                    <div id="summary-last-image-info-{{ observatory }}" class="whitespace-break-spaces opacity-50">
-                                    </div>
-                                </div>
-
-                            {# add webcam div #}
-                                {% if webcamfeeds != {} %}
-                                    <div class="basis-1/2 ml-2 ">
+                            {# webcam feed #}
+                                <div class="basis-1/2 ml-2 ">
+                                    {% if webcamfeeds != {} %}
                                         webcam
                                         {# <img src="{{ webcamfeeds[observatory]['rtsp'] }}" alt="webcam placeholder image" class="object-contain h-full w-full"> #}
-                                    </div>
-                                {% endif %}
+                                    {% endif %}
+                                </div>
                             </div>
 
                         {% elif nav == 'Schedule' %}
@@ -138,7 +134,81 @@
     <script>
 
         const popup = document.querySelector('#popup');
+        const popup_imageinfo = document.querySelector('#popup_imageinfo');
+        let scheduleLoadTime = {}
 
+        let mouseoverFunc = (data) => {
+            return (e) => {
+                popup_imageinfo.classList.remove('hidden');
+                popup_imageinfo.classList.add('block');
+                popup_imageinfo.innerHTML = syntaxHighlight(data);
+                movePopupImageInfo(e);
+            };
+        };
+
+        let mousemoveFunc = (e) => {
+            movePopupImageInfo(e);
+        };
+
+        let mouseoutFunc = () => {
+            popup_imageinfo.classList.remove('block');
+            popup_imageinfo.classList.add('hidden');
+        };
+
+        function movePopup(e) {
+            const mouseX = e.pageX;
+            const mouseY = e.pageY;
+            const popupWidth = popup.offsetWidth;
+            const popupHeight = popup.offsetHeight;
+            const padding = 10;
+            const popupX = mouseX + padding;
+            const popupY = mouseY + padding;
+            const maxX = window.innerWidth - popupWidth - padding;
+            // const maxY = window.innerHeight - popupHeight - padding;
+            const adjustedX = Math.min(popupX, maxX);
+            // const adjustedY = Math.min(popupY, maxY);
+            popup.style.left = `${adjustedX}px`;
+            popup.style.top = `${popupY}px`;
+        }
+
+        function movePopupImageInfo(e) {
+            const mouseX = e.pageX;
+            const mouseY = e.pageY;
+            const popupWidth = popup_imageinfo.offsetWidth;
+            const popupHeight = popup_imageinfo.offsetHeight;
+            const padding = 10;
+            const popupX = mouseX + padding;
+            const popupY = mouseY + padding;
+            const maxX = window.innerWidth - popupWidth - padding;
+            // const maxY = window.innerHeight - popupHeight - padding;
+            const adjustedX = Math.min(popupX, maxX);
+            // const adjustedY = Math.min(popupY, maxY);
+            popup_imageinfo.style.left = `${adjustedX}px`;
+            popup_imageinfo.style.top = `${popupY}px`;
+        }
+        
+        function syntaxHighlight(json) {
+            if (typeof json != 'string') {
+                json = JSON.stringify(json, undefined, 2);
+            }
+            json = json.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+            return json.replace(/("(\\u[a-zA-Z0-9]{4}|\\[^u]|[^\\"])*"(\s*:)?|\b(true|false|null)\b|-?\d+(?:\.\d*)?(?:[eE][+\-]?\d+)?)/g, function (match) {
+                var cls = 'number';
+                if (/^"/.test(match)) {
+                    if (/:$/.test(match)) {
+                        cls = 'key';
+                    } else {
+                        cls = 'string';
+                    }
+                } else if (/true|false/.test(match)) {
+                    cls = 'boolean';
+                } else if (/null/.test(match)) {
+                    cls = 'null';
+                }
+                return '<span class="' + cls + '">' + match + '</span>';
+            });
+        }
+   
         function navClick(element) {
             // element: the navigation element that was clicked
 
@@ -255,46 +325,7 @@
             row.classList.remove("border-b-slate-500");
 
         }
-
-        function movePopup(e) {
-            const mouseX = e.pageX;
-            const mouseY = e.pageY;
-            const popupWidth = popup.offsetWidth;
-            const popupHeight = popup.offsetHeight;
-            const padding = 10;
-            const popupX = mouseX + padding;
-            const popupY = mouseY + padding;
-            const maxX = window.innerWidth - popupWidth - padding;
-            // const maxY = window.innerHeight - popupHeight - padding;
-            const adjustedX = Math.min(popupX, maxX);
-            // const adjustedY = Math.min(popupY, maxY);
-            popup.style.left = `${adjustedX}px`;
-            popup.style.top = `${popupY}px`;
-        }
-        
-        // need to make use of cls to colour the text, else it's all default text color
-        function syntaxHighlight(json) {
-            if (typeof json != 'string') {
-                json = JSON.stringify(json, undefined, 2);
-            }
-            json = json.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-            return json.replace(/("(\\u[a-zA-Z0-9]{4}|\\[^u]|[^\\"])*"(\s*:)?|\b(true|false|null)\b|-?\d+(?:\.\d*)?(?:[eE][+\-]?\d+)?)/g, function (match) {
-                var cls = 'number';
-                if (/^"/.test(match)) {
-                    if (/:$/.test(match)) {
-                        cls = 'key';
-                    } else {
-                        cls = 'string';
-                    }
-                } else if (/true|false/.test(match)) {
-                    cls = 'boolean';
-                } else if (/null/.test(match)) {
-                    cls = 'null';
-                }
-                return '<span class="' + cls + '">' + match + '</span>';
-            });
-        }
-        
+     
         function updateSchedule(observatory) {
 
             fetch('/api/schedule/' + observatory)
@@ -371,7 +402,7 @@
                         },
                         margin: {l: 50, r: 15, b: 70, t: 20},
                         paper_bgcolor: 'rgba(0,0,0,0)', // sets background color
-                        plot_bgcolor: 'rgb(33,40,57)', // sets plot area color
+                        plot_bgcolor: 'rgb(36,38,41)', // sets plot area color
                         font: {
                             color: 'rgb(242,245,249)' // sets font color
                         },
@@ -483,18 +514,39 @@
 
 
                 // update last image
+                let lastImageDiv = document.getElementById("summary-last-image-parent-" + observatory);
                 let lastImage = message['last_image'];
                 if (lastImage['url'] != null) {
                     document.getElementById("summary-last-image-" + observatory).classList.remove('hidden');
                     document.getElementById("summary-last-image-placeholder-" + observatory).classList.add('hidden');
                     document.getElementById("summary-last-image-" + observatory).src = lastImage['url'];
 
-                    document.getElementById("summary-last-image-info-" + observatory).innerHTML = syntaxHighlight(lastImage['useful_headers']);
+                    popup_imageinfo.innerHTML = syntaxHighlight(lastImage['useful_headers']);
+
+                    // Remove old event listeners
+                    lastImageDiv.removeEventListener('mouseover', mouseoverFunc(lastImage['useful_headers']));
+                    lastImageDiv.removeEventListener('mousemove', mousemoveFunc);
+                    lastImageDiv.removeEventListener('mouseout', mouseoutFunc);
+
+                    // Add new event listeners
+                    lastImageDiv.addEventListener('mouseover', mouseoverFunc(lastImage['useful_headers']));
+                    lastImageDiv.addEventListener('mousemove', mousemoveFunc);
+                    lastImageDiv.addEventListener('mouseout', mouseoutFunc);
                 } else {
                     document.getElementById("summary-last-image-" + observatory).classList.add('hidden');
                     document.getElementById("summary-last-image-placeholder-" + observatory).classList.remove('hidden');
 
-                    document.getElementById("summary-last-image-info-" + observatory).innerHTML = '';
+                    popup_imageinfo.innerHTML = syntaxHighlight({'image': 'no image found'});
+
+                    // Remove old event listeners
+                    lastImageDiv.removeEventListener('mouseover', mouseoverFunc({'image': 'no image found'}));
+                    lastImageDiv.removeEventListener('mousemove', mousemoveFunc);
+                    lastImageDiv.removeEventListener('mouseout', mouseoutFunc);
+
+                    // Add new event listeners
+                    lastImageDiv.addEventListener('mouseover', mouseoverFunc({'image': 'no image found'}));
+                    lastImageDiv.addEventListener('mousemove', mousemoveFunc);
+                    lastImageDiv.addEventListener('mouseout', mouseoutFunc);
                 }
 
                 
@@ -535,9 +587,7 @@
             }
         }
 
-        let scheduleLoadTime = {}
-        let initialWeatherData = {}
-        
+   
         {% for observatory in observatories %}
 
             // connect to websockets
