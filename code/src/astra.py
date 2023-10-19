@@ -374,6 +374,10 @@ class Astra():
         self.__log('info', 'Connect all sequence complete')
         # run can<> ascom commands, needed for other commands to work? Else, alternatives needed.
 
+        # start watchdog once all devices connected
+        time.sleep(1) # wait for devices to connect and start polling
+        self.start_watchdog()
+
     def unload_all(self) -> None:
         '''
         This method gracefully shuts down the various components of the system, including the watchdog,
@@ -498,9 +502,7 @@ class Astra():
             if self.error_free is True:
                 try:      
                     # cleanup dead threads
-                    for i in self.threads:
-                        if i['thread'].is_alive() is False:
-                            self.threads.remove(i)
+                    self.threads = [i for i in self.threads if i['thread'].is_alive()]
 
                     # check if schedule file updated
                     try:
@@ -526,9 +528,9 @@ class Astra():
 
                                 t_poll = telescope.poll_latest()
                                 if t_poll['Altitude']['value'] <= alt_limit:
-
-                                    # TODO: BETTER LOGIC HERE NEEDED - CHECK IF SLEWING, GUIDING, TRACKING, ETC. before stopping
-                                    self.__log('warning', f"Telescope {telescope_name} altitude {t_poll['Altitude']['value']} < {alt_limit}")
+                                    
+                                    self.error_source.append({'device_type': 'Telescope', 'device_name': telescope_name, 'error': f"Telescope {telescope_name} altitude {t_poll['Altitude']['value']} < {alt_limit}"})
+                                    self.__log('error', f"Telescope {telescope_name} altitude {t_poll['Altitude']['value']} < {alt_limit}")
 
                                     # stop telescope slewing
                                     self.monitor_action('Telescope', 'Slewing', False, 'AbortSlew',
@@ -595,16 +597,6 @@ class Astra():
                         self.weather_safe = True
                         weather_warning = False # reset weather_warning flag
                         
-                    # check schedule is running
-                    if self.schedule_running is False:
-                        
-                        # start schedule - if weather is not safe, only calibration sequences will run
-                        if self.schedule.iloc[-1]['end_time'] > datetime.utcnow():
-                            
-                            th = Thread(target=self.run_schedule, daemon = True)
-                            th.start()
-                            self.threads.append({'type': 'run_schedule', 'device_name': 'Schedule', 'thread': th, 'id' : 'schedule'})
-
                 except Exception as e:
                     self.error_source.append({'device_type': 'Watchdog', 'device_name': 'watchdog', 'error': str(e)})
                     self.__log('error', f"Error during watchdog check: {str(e)}")
@@ -883,8 +875,8 @@ class Astra():
             if t['thread'].is_alive() is True:
                 if t['id'] in ['stop_slewing', 'stop_tracking', 'stop_dome_slewing', 'stop_camera']:
                     time.sleep(1)
-            else:
-                self.threads.remove(t)
+
+        self.threads = [i for i in self.threads if i['thread'].is_alive()]
 
         time.sleep(5) # time for interrupt to be caught by other threads
 
@@ -949,6 +941,34 @@ class Astra():
             self.__log('error', f'Error reading schedule: {e}')
             raise
 
+    def start_schedule(self) -> None:
+        '''
+        Start the schedule thread if it is not already running.
+
+        This method initializes and starts a new thread responsible for executing the schedule.
+
+        '''
+
+        # start schedule - if weather is not safe, only calibration sequences will run
+        if self.schedule_running:
+            self.__log('warning', 'Schedule already running')
+            return
+        
+        if self.watchdog_running is False:
+            self.__log('warning', 'Schedule cannot be started without watchdog running')
+            return
+        
+        if self.schedule.iloc[-1]['end_time'] < datetime.utcnow():
+            self.__log('warning', 'Schedule end time in the past')
+            return
+        
+        # reset completed column on new start
+        self.schedule['completed'] = False
+        
+        th = Thread(target=self.run_schedule, daemon = True)
+        th.start()
+        self.threads.append({'type': 'run_schedule', 'device_name': 'Schedule', 'thread': th, 'id' : 'schedule'})
+
     def run_schedule(self) -> None:
         '''
         Run the schedule while monitoring safety conditions and executing scheduled actions.
@@ -972,12 +992,10 @@ class Astra():
             self.__log('error', 'Weather safety check timed out')
             return False
 
-        while self.schedule_running and self.error_free and (self.interrupt is False):
+        while self.schedule_running and self.watchdog_running and self.error_free and (self.interrupt is False):
 
             # loop through self.threads and remove the ones that are dead
-            for j in self.threads:
-                if j['thread'].is_alive() is False:
-                    self.threads.remove(j)
+            self.threads = [i for i in self.threads if i['thread'].is_alive()]
 
             # create list of running thread ids
             ids = [k['id'] for k in self.threads]
@@ -1049,30 +1067,12 @@ class Astra():
 
             if 'object' == row['action_type']:
                 self.object_sequence(row, paired_devices)
-
-                # set 'completed' flag to True if ended under normal conditions
-                if self.weather_safe and self.error_free and (self.interrupt is False) \
-                    and self.schedule_running and self.watchdog_running: 
-
-                    self.schedule[row.name]['completed'] = True
                 
             elif 'calibration' == row['action_type']:
                 self.calibration_sequence(row, paired_devices)
 
-                # set 'completed' flag to True if ended under normal conditions (without weather check)
-                if self.error_free and (self.interrupt is False) \
-                    and self.schedule_running and self.watchdog_running:
-
-                    self.schedule[row.name]['completed'] = True
-
             elif 'flats' == row['action_type']:
                 self.flats_sequence(row, paired_devices)
-
-                # set 'completed' flag to True if ended under normal conditions
-                if self.weather_safe and self.error_free and (self.interrupt is False) \
-                    and self.schedule_running and self.watchdog_running: 
-
-                    self.schedule[row.name]['completed'] = True
 
             elif 'open' == row['action_type']:
                 if 'Camera' in self.observatory:
@@ -1096,8 +1096,6 @@ class Astra():
                     # open all dome(s) and unpark telescope(s)
                     self.open_observatory()
 
-                # no need to set 'completed' flag for open/close actions as they should always run
-
             elif 'close' == row['action_type']:
                 if 'Camera' in self.observatory:
                     # close dome and park telescope
@@ -1106,29 +1104,42 @@ class Astra():
                     # close all dome(s) and park telescope(s)
                     self.close_observatory()
 
-                # no need to set 'completed' flag for open/close actions as they should always run
-
             else: 
-                # if not 'object' or 'calibration' or 'flats', assume it's an ASCOM command
-                device = self.devices[row['device_type']][row['device_name']]
+                # # if not 'object' or 'calibration' or 'flats', assume it's an ASCOM command
+                # device = self.devices[row['device_type']][row['device_name']]
 
-                if row['action_type'] in dir(device.device):
-                    if isinstance(eval(row['action_value']), dict):
-                        device.get(row['action_type'])(**eval(row['action_value']))
-                        self.__log('info', f"Finished {row['device_name']} {row['action_type']} {row['action_value']}")
+                # if row['action_type'] in dir(device.device):
+                #     if isinstance(eval(row['action_value']), dict):
+                #         device.get(row['action_type'])(**eval(row['action_value']))
+                #         self.__log('info', f"Finished {row['device_name']} {row['action_type']} {row['action_value']}")
  
-                    else:
-                        device.set(row['action_type'], row['action_value'])
-                        self.__log('info', f"Finished {row['device_name']} {row['action_type']} {row['action_value']}")
+                #     else:
+                #         device.set(row['action_type'], row['action_value'])
+                #         self.__log('info', f"Finished {row['device_name']} {row['action_type']} {row['action_value']}")
                         
-                else:
-                    raise ValueError(f"Invalid action_type: {row['device_name']} {row['action_type']} with {row['action_value']} is not a valid method or property for {row['device_type']} {row['device_name']}")
+                # else:
+                    # raise ValueError(f"Invalid action_type: {row['device_name']} {row['action_type']} with {row['action_value']} is not a valid method or property for {row['device_type']} {row['device_name']}")
         
-                self.schedule[row.name]['completed'] = True
+                # self.schedule[row.name]['completed'] = True
+
+                self.error_source.append({'device_type': 'Schedule', 'device_name': row['device_name'], 'error': f"Invalid action_type: {row['device_name']} {row['action_type']} with {row['action_value']} is not a valid method or property for {row['device_type']} {row['device_name']}"})
+                self.__log('error', f"Invalid action_type: {row['device_name']} {row['action_type']} with {row['action_value']} is not a valid method or property for {row['device_type']} {row['device_name']}")
         
+            # set 'completed' flag to True if ended under normal conditions
+            if self.error_free and (self.interrupt is False) \
+                and self.schedule_running and self.watchdog_running:
+
+                if ('calibration' == row['action_type']) or self.weather_safe:
+                    print(row.name)
+                    self.schedule.loc[row.name, 'completed'] = True
+
         except Exception as e:
             self.schedule_running = False
+            self.error_source.append({'device_type': 'Schedule', 'device_name': row['device_name'], 'error': str(e)})
             self.__log('error', f"Run action error: {str(e)}")
+            # import traceback
+            # print(traceback.format_exc())
+            # self.__log('error', traceback.format_exc())
         
     def pre_sequence(self, row : dict, paired_devices :dict) -> tuple:
         '''
@@ -1240,7 +1251,10 @@ class Astra():
             names = filterwheel.get('Names')
 
             # find index of filter name
-            filter_index = [i for i, d in enumerate(names) if d == f][0]
+            if f in names:
+                filter_index = [i for i, d in enumerate(names) if d == f][0]
+            else:
+                raise ValueError(f"Filter {f} not found in {names}")
 
             # set filter
             self.monitor_action('FilterWheel', 'Position', filter_index, 'Position', 

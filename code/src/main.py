@@ -209,17 +209,47 @@ async def heartbeat(observatory: str):
 
     return {"status": "success", "data": obs.heartbeat, "message": ""}
 
+@app.get("/api/open/{observatory}")
+async def open_observatory(observatory: str):
+    obs = observatories[observatory]
+
+    obs.open_observatory()
+
+    return {"status": "success", "data": "null", "message": ""}
+
+@app.get("/api/close/{observatory}")
+async def close_observatory(observatory: str):
+    obs = observatories[observatory]
+
+    obs.close_observatory()
+
+    return {"status": "success", "data": "null", "message": ""}
+
 @app.get("/api/startwatchdog/{observatory}")
-async def start(observatory: str):
+async def start_watchdog(observatory: str):
     obs = observatories[observatory]
     obs.start_watchdog()
 
     return {"status": "success", "data": "null", "message": ""}
 
 @app.get("/api/stopwatchdog/{observatory}")
-async def stop(observatory: str):
+async def stop_watchdog(observatory: str):
     obs = observatories[observatory]
     obs.watchdog_running = False
+
+    return {"status": "success", "data": "null", "message": ""}
+
+@app.get("/api/startschedule/{observatory}")
+async def start_schedule(observatory: str):
+    obs = observatories[observatory]
+    obs.start_schedule()
+
+    return {"status": "success", "data": "null", "message": ""}
+
+@app.get("/api/stopschedule/{observatory}")
+async def stop_schedule(observatory: str):
+    obs = observatories[observatory]
+    obs.schedule_running = False
 
     return {"status": "success", "data": "null", "message": ""}
 
