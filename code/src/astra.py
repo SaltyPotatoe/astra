@@ -1475,6 +1475,8 @@ class Astra():
                             if pointing_attempts > 3:
                                 self.__log('warning', f"Pointing correction for {action_value['object']} with {row['device_name']} failed after {pointing_attempts} attempts")
                                 pointing_complete = True
+                    else:
+                        pointing_complete = True
 
                 # initialise guiding once pointing correction is complete
                 if 'guiding' in action_value and guiding is False and pointing_complete is True:
@@ -2095,7 +2097,7 @@ class Astra():
                                 hdr[header] = (df_inp.iloc[i][header], df_poll_unique[df_poll_unique['header'] == header]['comment'].values[0])
 
                             hdr['RA'] = hdr['RA'] * (360/24) # convert to degrees
-                             
+
                             location = EarthLocation(lat=hdr['LAT-OBS']*u.deg, lon=hdr['LONG-OBS']*u.deg, height=hdr['ALT-OBS']*u.m)
                             target = SkyCoord(hdr['RA'], hdr['DEC'], unit=(u.deg, u.deg), frame='icrs')
                             
