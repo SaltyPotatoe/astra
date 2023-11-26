@@ -214,7 +214,7 @@ async def heartbeat(observatory: str):
     return {"status": "success", "data": obs.heartbeat, "message": ""}
 
 @app.get("/api/open/{observatory}")
-async def open_observatory(observatory: str):
+def open_observatory(observatory: str):
     obs = observatories[observatory]
 
     obs.open_observatory()
@@ -222,7 +222,7 @@ async def open_observatory(observatory: str):
     return {"status": "success", "data": "null", "message": ""}
 
 @app.get("/api/close/{observatory}")
-async def close_observatory(observatory: str):
+def close_observatory(observatory: str):
     obs = observatories[observatory]
 
     obs.close_observatory()
