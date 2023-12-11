@@ -408,19 +408,20 @@ class Astra():
         """
 
         if device_types is not None:
-            self.__log('info', f"Pausing polls for {device_types}")
+            self.__log('info', f"Pausing polls for {device_types} if present")
         else:
             self.__log('info', 'Pausing polls for all devices')
 
             device_types = self.devices.keys()
             
         for device_type in device_types:
-            for device_name in self.devices[device_type]:
-                try:
-                    self.devices[device_type][device_name].pause_polls()
-                except Exception as e:
-                    self.error_source.append({'device_type': device_type, 'device_name': device_name, 'error': str(e)})
-                    self.__log('error', f"{device_type} {device_name} could not pause polls: {str(e)}")
+            if device_type in self.devices:
+                for device_name in self.devices[device_type]:
+                    try:
+                        self.devices[device_type][device_name].pause_polls()
+                    except Exception as e:
+                        self.error_source.append({'device_type': device_type, 'device_name': device_name, 'error': str(e)})
+                        self.__log('error', f"{device_type} {device_name} could not pause polls: {str(e)}")
 
     def resume_polls(self, device_types : list = None) -> None:
         """
@@ -432,19 +433,20 @@ class Astra():
         """
 
         if device_types is not None:
-            self.__log('info', f"Resuming polls for {device_types}")
+            self.__log('info', f"Resuming polls for {device_types} if present")
         else:
             self.__log('info', 'Resuming polls for all devices')
 
             device_types = self.devices.keys()
             
         for device_type in device_types:
-            for device_name in self.devices[device_type]:
-                try:
-                    self.devices[device_type][device_name].resume_polls()
-                except Exception as e:
-                    self.error_source.append({'device_type': device_type, 'device_name': device_name, 'error': str(e)})
-                    self.__log('error', f"{device_type} {device_name} could not pause polls: {str(e)}")
+            if device_type in self.devices:
+                for device_name in self.devices[device_type]:
+                    try:
+                        self.devices[device_type][device_name].resume_polls()
+                    except Exception as e:
+                        self.error_source.append({'device_type': device_type, 'device_name': device_name, 'error': str(e)})
+                        self.__log('error', f"{device_type} {device_name} could not pause polls: {str(e)}")
 
     def unload_all(self) -> None:
         '''
@@ -772,11 +774,13 @@ class Astra():
 
         """
 
+        # SPECULOOS EDIT
+        self.pause_polls(['Dome', 'Telescope', 'Focuser'])
+
         if 'Dome' in self.observatory:
             if self.weather_safe and self.error_free and (self.interrupt is False):
                 # open dome shutter
                 if paired_devices is not None:
-                    
                     self.monitor_action('Dome', 'ShutterStatus', 0, 'OpenShutter', 
                                         device_name = paired_devices['Dome'],
                                         log_message = f"Opening Dome shutter of {paired_devices['Dome']}")
@@ -794,6 +798,9 @@ class Astra():
                 else:
                     self.monitor_action('Telescope', 'AtPark', False, 'Unpark',
                                         log_message = "Unparking Telescope(s)")
+
+        # SPECULOOS EDIT
+        self.resume_polls(['Dome', 'Telescope', 'Focuser'])
 
     def close_observatory(self, paired_devices : dict = None) -> None:
         '''
@@ -813,6 +820,9 @@ class Astra():
 
         '''
         
+        # SPECULOOS EDIT
+        self.pause_polls(['Dome', 'Telescope', 'Focuser'])
+
         if 'Telescope' in self.observatory:
 
             # stop guiding
@@ -852,8 +862,6 @@ class Astra():
                 self.monitor_action('Telescope', 'AtPark', True, 'Park',
                                         log_message = "Parking Telescope(s)")
                 
-
-            
         if 'Dome' in self.observatory:
 
             # park dome
@@ -873,6 +881,9 @@ class Astra():
             else:
                 self.monitor_action('Dome', 'ShutterStatus', 1, 'CloseShutter',
                                         log_message = "Closing Dome shutter(s)")
+        
+        # SPECULOOS EDIT
+        self.resume_polls(['Dome', 'Telescope', 'Focuser'])
 
     def start_toggle_interrupt(self) -> None:
         '''
