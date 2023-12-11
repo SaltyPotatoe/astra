@@ -66,10 +66,12 @@ FALSE,str,TRUE,TEL-DVER,Telescope,DriverVersion,Telescope driver version
 FALSE,float,FALSE,HA,astra,HA = LST - RA,
 FALSE,bool,FALSE,TRACKING,Telescope,Tracking,Tracking
 FALSE,bool,FALSE,SLEWING,Telescope,Slewing,Slewing
+FALSE,bool,FALSE,TELPARK,Telescope,AtPark,Telescope at park
 ,,,,,,
 FALSE,float,FALSE,DOMEAZ,Dome,Azimuth,Dome azimuth (degrees)
 FALSE,int,FALSE,DOMESTAT,Dome,ShutterStatus,Status of the dome shutter
 FALSE,str,TRUE,DOM-DNAM,Dome,Name,The short name of the Dome driver
+FALSE,bool,FALSE,DOMPARK,Dome,AtPark,Dome at park
 ,,,,,,
 FALSE,str,TRUE,IMAGETYP,astra,,Type of image
 ,,,,,,

@@ -135,7 +135,7 @@ async def lastest_image(image: str):
 
 from io import BytesIO
 
-@app.get("/video2/{observatory}/{filename:path}", include_in_schema=False)
+@app.get("/video/{observatory}/{filename:path}", include_in_schema=False)
 async def get_video(request: Request, observatory, filename : str = None):
     headers = request.headers
     base_url = webcamfeeds[observatory]
@@ -151,64 +151,6 @@ async def get_video(request: Request, observatory, filename : str = None):
         return StreamingResponse(BytesIO(content), status_code=status_code, headers=headers, media_type='video/mp4')
     else:
         return HTMLResponse(content, status_code=status_code, headers=headers)
-
-@app.get("/video/{observatory}/{filename:path}", include_in_schema=False)
-async def get_video(request: Request, observatory, filename : str = None):
-    headers = request.headers
-    base_url = webcamfeeds[observatory]
-    target_url = f"{base_url}/{filename}"  # Replace with the actual URL of the WebRTC page
-
-    async with httpx.AsyncClient() as client:
-        response = await client.get(target_url, headers=headers)
-        content = response.text
-        status_code = response.status_code
-        headers = response.headers
-
-    return HTMLResponse(content, status_code=status_code, headers=headers)
-
-@app.options("/video/{observatory}/{filename:path}", include_in_schema=False)
-async def options_video(request: Request, observatory, filename : str = None):
-    headers = request.headers
-    base_url = webcamfeeds[observatory]
-    target_url = f"{base_url}/{filename}"  # Replace with the actual URL of the WebRTC page
-
-    async with httpx.AsyncClient() as client:
-        response = await client.options(target_url, headers=headers)
-        content = response.text
-        status_code = response.status_code
-        headers = response.headers
-
-    return HTMLResponse(content, status_code=status_code, headers=headers)
-
-@app.post("/video/{observatory}/{filename:path}", include_in_schema=False)
-async def post_video(request: Request, observatory, filename : str = None):
-    body = await request.body()
-    headers = request.headers
-    base_url = webcamfeeds[observatory]
-    target_url = f"{base_url}/{filename}"  # Replace with the actual URL of the WebRTC page
-
-    async with httpx.AsyncClient() as client:
-        response = await client.post(target_url, data=body, headers=headers)
-        content = response.text
-        status_code = response.status_code
-        headers = response.headers
-
-    return HTMLResponse(content, status_code=status_code, headers=headers)
-
-@app.patch("/video/{observatory}/{filename:path}", include_in_schema=False)
-async def patch_video(request: Request, observatory, filename : str = None):
-    body = await request.body()
-    headers = request.headers
-    base_url = webcamfeeds[observatory]
-    target_url = f"{base_url}/{filename}"  # Replace with the actual URL of the WebRTC page
-
-    async with httpx.AsyncClient() as client:
-        response = await client.patch(target_url, data=body, headers=headers)
-        content = response.text
-        status_code = response.status_code
-        headers = response.headers
-
-    return HTMLResponse(content, status_code=status_code, headers=headers)
 
 @app.get("/api/heartbeat/{observatory}")
 async def heartbeat(observatory: str):
@@ -490,7 +432,7 @@ async def websocket_endpoint(websocket: WebSocket, observatory: str):
                   {"item": "interrupt" , "value" : "on" if obs.interrupt else "off"},
                   {"item": "error source" , "value" : "none" if len(obs.error_source) == 0 else "hover to see", "error_source": obs.error_source},
                   {"item": "threads" , "value" : len(threads), "threads": threads},
-                  {"item": "percent safe" , "value" : f'{obs.percent_safe:.0f} %'}]
+                  {"item": "percent safe" , "value" : f'{obs.percent_safe:.2f} %'}]
 
         if 'Telescope' in obs.devices:
             # we want to know if slewing or tracking

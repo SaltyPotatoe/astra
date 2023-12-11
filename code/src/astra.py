@@ -16,6 +16,7 @@ import yaml
 import os
 import psutil
 from alpaca_device_process import AlpacaDevice
+# from ascom_device_process import AscomDevice
 from astropy.coordinates import EarthLocation, SkyCoord
 from astropy.io import fits
 from astropy.time import Time
@@ -323,6 +324,12 @@ class Astra():
                                                                               d['device_name'],
                                                                               self.queue, 
                                                                               self.debug)
+
+                        # devices[device_type][d['device_name']] = AscomDevice(device_type, 
+                        #                                                       d['device_name'], 
+                        #                                                       d['ascom_name'],
+                        #                                                       self.queue, 
+                        #                                                       self.debug)
                         devices[device_type][d['device_name']].start()
                     except Exception as e:
                         self.error_source.append({'device_type': device_type, 'device_name': d['device_name'], 'error': str(e)})
@@ -363,13 +370,14 @@ class Astra():
         for i, row in self.fits_config.iterrows():
             if (row['device_type'] not in ['astropy_default', 'astra', 'astra_fixed', '']) and row['fixed'] is False:
                 device_type = row['device_type']
-                for device_name in self.devices[device_type]:
-                    device = self.devices[device_type][device_name]
-                    try:
-                        device.start_poll(row['device_command'], delay) # 5 second polling
-                    except Exception as e:
-                        self.error_source.append({'device_type': device_type, 'device_name': device_name, 'error': str(e)})
-                        self.__log('error', f"Error starting polling for {device_type} {device_name}: {str(e)}")
+                if device_type in self.devices:
+                    for device_name in self.devices[device_type]:
+                        device = self.devices[device_type][device_name]
+                        try:
+                            device.start_poll(row['device_command'], delay) # 5 second polling
+                        except Exception as e:
+                            self.error_source.append({'device_type': device_type, 'device_name': device_name, 'error': str(e)})
+                            self.__log('error', f"Error starting polling for {device_type} {device_name}: {str(e)}")
         
         delay = 1 # seconds
         if 'SafetyMonitor' in self.observatory:
@@ -2099,6 +2107,9 @@ class Astra():
         else:
             nda = np.array(img, dtype=imgDataType).transpose(2,1,0)
 
+        # SPECULOOS specific edit - rotate ccw 90
+        nda = np.rot90(nda, k=3)
+
         return nda
         
     def save_image(self, device : AlpacaDevice, hdr : fits.Header, dateobs : datetime, t0 : datetime, maxadu : int, folder : str) -> str:
@@ -2224,14 +2235,17 @@ class Astra():
                         self.__log('warning', f"Unknown header: {row['header']}")
 
             elif (row['device_type'] not in ['astropy_default', 'astra', 'astra_fixed', '']) and row['fixed'] is True:
+
                 # direct ascom command headers
                 device_type = row['device_type']
-                device_name = paired_devices[device_type]
-                device = self.devices[device_type][device_name]
 
-                val = device.get(row['device_command'])
+                if device_type in self.devices:
+                    device_name = paired_devices[device_type]
+                    device = self.devices[device_type][device_name]
 
-                hdr[row['header']] = (val, row["comment"])
+                    val = device.get(row['device_command'])
+
+                    hdr[row['header']] = (val, row["comment"])
 
             elif row['device_type'] == 'astra_fixed':
                 # fixed headers, ensure datatype

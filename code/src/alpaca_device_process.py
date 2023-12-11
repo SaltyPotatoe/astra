@@ -29,6 +29,7 @@ class AlpacaDevice(Process):
         self.lock = Lock()
         self.queue = queue
         self.debug = debug
+        self.global_pause = False
 
         if device_type in ["Telescope", "Camera", "CoverCalibrator", "Dome", "FilterWheel", "Focuser", "ObservingConditions", "Rotator", "SafetyMonitor", "Switch"]:
             self.device = globals()[device_type](ip, device_number)
@@ -169,7 +170,7 @@ class AlpacaDevice(Process):
                                 data = data(**kwargs)
 
                         if self.debug:
-                            self.queue.put((self.metadata, {"type" : "log", "data" : ("debug", f'Get method success: {self.device_type}, {self.device_name}, {method}')}))
+                            self.queue.put((self.metadata, {"type" : "log", "data" : ("debug", f'Get method success: {self.device_type}, {self.device_name}, {method} with data {str(data)}')}))
                 except Exception as e:
                     time.sleep(0)
                     self.queue.put((self.metadata, {"type" : "log", "data" : ("warning", f'Get method failed with data {str(data)}: {self.device_type}, {self.device_name}, {method}, {str(e)}, trying again...')}))
@@ -177,6 +178,7 @@ class AlpacaDevice(Process):
                     continue
                 time.sleep(0)
 
+            # final run. If error, caught by try/except 
             if data is None:
                 data = getattr(self.device, method)
 
@@ -188,7 +190,7 @@ class AlpacaDevice(Process):
                         data = data(**kwargs)
 
                 if self.debug:
-                    self.queue.put((self.metadata, {"type" : "log", "data" : ("debug", f'Get method success: {self.device_type}, {self.device_name}, {method}')}))
+                    self.queue.put((self.metadata, {"type" : "log", "data" : ("debug", f'Get method success: {self.device_type}, {self.device_name}, {method}, with data {str(data)}')}))
 
             time.sleep(0)
 
@@ -219,29 +221,29 @@ class AlpacaDevice(Process):
         self._poll_latest[method]["datetime"] = None
         try:
             while method in self._poll_list:
-
-                get = self.get__(method, pipe=False)
-                if get["status"] == "success":
-                    val = get["data"]
-                else:
-                    time.sleep(1)
-                    ## try again, just in case...
+                if not self.global_pause:
                     get = self.get__(method, pipe=False)
                     if get["status"] == "success":
                         val = get["data"]
                     else:
-                        raise ValueError(get)
-                time.sleep(0)
+                        time.sleep(1)
+                        ## try again, just in case...
+                        get = self.get__(method, pipe=False)
+                        if get["status"] == "success":
+                            val = get["data"]
+                        else:
+                            raise ValueError(get)
+                    time.sleep(0)
 
-                dt = datetime.utcnow()
-                dt_str = dt.strftime("%Y-%m-%d %H:%M:%S.%f")
+                    dt = datetime.utcnow()
+                    dt_str = dt.strftime("%Y-%m-%d %H:%M:%S.%f")
 
-                self.queue.put((self.metadata, {"type" : "query", "data" : f"INSERT INTO polling VALUES ('{self.device_type}', '{self.device_name}',  '{method}', '{val}', '{dt_str}')"}))
-                
-                self._poll_latest[method]["value"] = val
-                self._poll_latest[method]["datetime"] = dt
-                
-                time.sleep(delay)
+                    self.queue.put((self.metadata, {"type" : "query", "data" : f"INSERT INTO polling VALUES ('{self.device_type}', '{self.device_name}',  '{method}', '{val}', '{dt_str}')"}))
+                    
+                    self._poll_latest[method]["value"] = val
+                    self._poll_latest[method]["datetime"] = dt
+                    
+                    time.sleep(delay)
         except Exception as e:
             dt = datetime.utcnow()
             self._poll_latest[method]["datetime"] = dt

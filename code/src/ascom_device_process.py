@@ -5,6 +5,7 @@ from threading import Thread
 from multiprocessing import Process, Pipe, Lock
 
 import win32com.client
+import pythoncom
 
 import os
 import signal
@@ -13,7 +14,7 @@ import signal
 # https://stackoverflow.com/questions/27435284/multiprocessing-vs-multithreading-vs-asyncio
 
 class AscomDevice(Process):
-    def __init__(self, device_type, device_name, queue, debug=False):
+    def __init__(self, device_type, device_name, ascom_name, queue, debug=False):
         super().__init__()
         self.front_pipe, self.back_pipe = Pipe()
         self.lock = Lock()
@@ -21,13 +22,14 @@ class AscomDevice(Process):
         self.debug = debug
 
         if device_type in ["Telescope", "Camera", "CoverCalibrator", "Dome", "FilterWheel", "Focuser", "ObservingConditions", "Rotator", "SafetyMonitor", "Switch"]:
-            self.device = win32com.client.Dispatch(device_name)
+            self.device = win32com.client.Dispatch(ascom_name)
         else:
             print(f"{device_type} is not a valid device type")
             ## TODO: raise exception, does it kill the process?
 
         self.device_type = device_type
         self.device_name = device_name
+        self.ascom_name = ascom_name
         self.metadata = {"device_type" : device_type, "device_name" : device_name}
 
         self._poll_list = []
@@ -45,7 +47,7 @@ class AscomDevice(Process):
     def __setstate__(self, state):
         self.__dict__.update(state)
         # Add device back since it doesn't exist in the pickle
-        self.device = win32com.client.Dispatch(self.device_name)
+        self.device = win32com.client.Dispatch(self.ascom_name)
 
 
 
@@ -151,6 +153,7 @@ class AscomDevice(Process):
     def get__(self, method, pipe=True, **kwargs):
         ## method getter
         try:
+            print(self.device, method)
             # permit 3 attempts
             data = None
             if self.debug:
@@ -225,6 +228,7 @@ class AscomDevice(Process):
                     val = get["data"]
                 else:
                     time.sleep(0)
+                    print("shit!", get)
                     ## try again, just in case...
                     get = self.get__(method, pipe=False)
                     if get["status"] == "success":
@@ -250,6 +254,7 @@ class AscomDevice(Process):
         
     def start_poll__(self, method, delay):
         if method not in self._poll_list:
+            pythoncom.CoInitialize()
             Thread(target=self.loop__, args=(method, delay), daemon=True).start()
             self.queue.put((self.metadata, {"type" : "log", "data" : ('info', f'{self.device_type}, {self.device_name}, {method} poll started with {delay} second cadence')}))
     
@@ -293,29 +298,26 @@ if __name__ == "__main__":
     manager = Manager()
     queue = manager.Queue()
 
-    d = AscomDevice("Telescope", "ASCOM.Simulator.Telescope", queue, debug=True)
+    d = AscomDevice("Telescope", "ttTCLM_ASCOM.Telescope", "ttTCLM_ASCOM.Telescope", queue, debug=True)
     d.start()
 
     try:
-        print(d.device)
-        print(d.get("Connected"))
-        time.sleep(1)
-        print(d.set("Connected", True))
-        print(d.get("Connected"))
+        # print(d.device)
+        # print(d.get("Connected"))
+        # time.sleep(1)
+        # print(d.set("Connected", True))
+        # print(d.get("Connected"))
 
-        print(d.get("SiteElevation"))
-        print(d.get("SiteElevation"))
-        print(d.get("SiteElevation"))
-        print(d.get("SiteElevation"))
-        print(d.get("SiteElevation"))
-        print(d.get("SiteElevation"))
-        print(d.get("SiteElevation"))
+        d.start_poll("SiteElevation", 1)
 
-        print(d.get("Connected"))
-        print(d.set("Connected", False))
-        time.sleep(1)
-        print(d.get("Connected"))
+        time.sleep(10)
+        print(d.poll_latest())
 
+        # print(d.get("Connected"))
+        # print(d.set("Connected", False))
+        # time.sleep(1)
+        # print(d.get("Connected"))
+        # print(d.poll_latest())
 
 
     except Exception as e:
