@@ -398,6 +398,54 @@ class Astra():
         time.sleep(1) # wait for devices to connect and start polling TODO: check one device's latest polling is valid before starting watchdog
         # self.start_watchdog()
 
+    def pause_polls(self, device_types : list = None) -> None:
+        """
+        This method pauses the polling of all devices, or a subset of devices if specified.
+
+        Parameters:
+            device_types (list, optional): A list of device types to pause polling. Defaults to None.
+
+        """
+
+        if device_types is not None:
+            self.__log('info', f"Pausing polls for {device_types}")
+        else:
+            self.__log('info', 'Pausing polls for all devices')
+
+            device_types = self.devices.keys()
+            
+        for device_type in device_types:
+            for device_name in self.devices[device_type]:
+                try:
+                    self.devices[device_type][device_name].pause_polls()
+                except Exception as e:
+                    self.error_source.append({'device_type': device_type, 'device_name': device_name, 'error': str(e)})
+                    self.__log('error', f"{device_type} {device_name} could not pause polls: {str(e)}")
+
+    def resume_polls(self, device_types : list = None) -> None:
+        """
+        This method resumes the polling of all devices, or a subset of devices if specified.
+
+        Parameters:
+            device_types (list, optional): A list of device types to resume polling. Defaults to None.
+
+        """
+
+        if device_types is not None:
+            self.__log('info', f"Resuming polls for {device_types}")
+        else:
+            self.__log('info', 'Resuming polls for all devices')
+
+            device_types = self.devices.keys()
+            
+        for device_type in device_types:
+            for device_name in self.devices[device_type]:
+                try:
+                    self.devices[device_type][device_name].resume_polls()
+                except Exception as e:
+                    self.error_source.append({'device_type': device_type, 'device_name': device_name, 'error': str(e)})
+                    self.__log('error', f"{device_type} {device_name} could not pause polls: {str(e)}")
+
     def unload_all(self) -> None:
         '''
         This method gracefully shuts down the various components of the system, including the watchdog,
@@ -728,6 +776,7 @@ class Astra():
             if self.weather_safe and self.error_free and (self.interrupt is False):
                 # open dome shutter
                 if paired_devices is not None:
+                    
                     self.monitor_action('Dome', 'ShutterStatus', 0, 'OpenShutter', 
                                         device_name = paired_devices['Dome'],
                                         log_message = f"Opening Dome shutter of {paired_devices['Dome']}")

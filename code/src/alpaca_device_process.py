@@ -29,7 +29,6 @@ class AlpacaDevice(Process):
         self.lock = Lock()
         self.queue = queue
         self.debug = debug
-        self.global_pause = False
 
         if device_type in ["Telescope", "Camera", "CoverCalibrator", "Dome", "FilterWheel", "Focuser", "ObservingConditions", "Rotator", "SafetyMonitor", "Switch"]:
             self.device = globals()[device_type](ip, device_number)
@@ -45,6 +44,7 @@ class AlpacaDevice(Process):
 
         self._poll_list = []
         self._poll_latest = {}
+        self._poll_pause = False
 
         self.queue.put((self.metadata, {"type" : "log", "data" : ("info", f'{device_type} {device_name} loaded')}))
 
@@ -77,6 +77,14 @@ class AlpacaDevice(Process):
     def stop_poll(self, method=None):
         with self.lock:
             self.front_pipe.send(["stop_poll", {"method" : method}])
+    
+    def pause_polls(self):
+        with self.lock:
+            self.front_pipe.send("pause_polls")
+
+    def resume_polls(self):
+        with self.lock:
+            self.front_pipe.send("resume_polls")
     
     def poll_list(self):
         with self.lock:
@@ -132,6 +140,12 @@ class AlpacaDevice(Process):
                 return True
             elif message == "stop_poll":
                 self.stop_poll__(**r[1])
+                return True
+            elif message == "pause_polls":
+                self._poll_pause = True
+                return True
+            elif message == "resume_polls":
+                self._poll_pause = False
                 return True
             elif message == "poll_list":
                 self.poll_list__()
@@ -221,7 +235,7 @@ class AlpacaDevice(Process):
         self._poll_latest[method]["datetime"] = None
         try:
             while method in self._poll_list:
-                if not self.global_pause:
+                if not self._poll_pause:
                     get = self.get__(method, pipe=False)
                     if get["status"] == "success":
                         val = get["data"]

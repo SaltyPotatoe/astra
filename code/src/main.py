@@ -4,7 +4,9 @@ import sqlite3
 from contextlib import asynccontextmanager
 from glob import glob
 from astropy.io import fits
+from astropy.visualization import ZScaleInterval
 import os
+from io import BytesIO
 import matplotlib.pyplot as plt
 
 import pandas as pd
@@ -72,8 +74,6 @@ def format_time(ftime : datetime.datetime):
     except:
         return None
 
-from astropy.visualization import ZScaleInterval
-
 def convert_fits_to_jpg(fits_file, observatory):
     # Open the FITS file
     headers = {}
@@ -128,12 +128,9 @@ async def favicon():
 async def js(file : str):
     return FileResponse(os.path.join('frontend', 'js', file))
 
-
 @app.get('/frontend/{image}', include_in_schema=False)
 async def lastest_image(image: str):
     return FileResponse(os.path.join('frontend', image))
-
-from io import BytesIO
 
 @app.get("/video/{observatory}/{filename:path}", include_in_schema=False)
 async def get_video(request: Request, observatory, filename : str = None):
@@ -157,6 +154,22 @@ async def heartbeat(observatory: str):
     obs = observatories[observatory]
 
     return {"status": "success", "data": obs.heartbeat, "message": ""}
+
+@app.get("/api/pausepolls/{observatory}")
+def pause_polls(observatory: str):
+    obs = observatories[observatory]
+
+    obs.pause_polls()
+
+    return {"status": "success", "data": "null", "message": ""}
+
+@app.get("/api/resumepolls/{observatory}")
+def resume_polls(observatory: str):
+    obs = observatories[observatory]
+
+    obs.resume_polls()
+
+    return {"status": "success", "data": "null", "message": ""}
 
 @app.get("/api/open/{observatory}")
 def open_observatory(observatory: str):
