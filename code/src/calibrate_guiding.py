@@ -33,10 +33,10 @@ class CustomImageClass(Image):
         band_clean = clean - band_corr
         self.raw_image = band_clean
 
-TELESCOPE_IP = '10.211.55.3:11111'
+TELESCOPE_IP = 'localhost:11111'
 TELESCOPE_DEVICE_NUMBER = 0
 
-CAMERA_IP = 'localhost:8080'
+CAMERA_IP = 'localhost:11111'
 CAMERA_DEVICE_NUMBER = 0
 
 def connectTelescope():
@@ -88,7 +88,7 @@ def takeImageWithMaxIm(camera_object : Camera, image_path, filter_id=2,
     dateobs = datetime.utcnow()
     maxadu = camera_object.MaxADU
 
-    camera_object.StartExposure(Duration=exptime, Light=1)
+    camera_object.StartExposure(Duration=exptime, Light=True)
 
     while not camera_object.ImageReady:
         time.sleep(0.1)

@@ -3,19 +3,19 @@ Telescope:
     ip: localhost:11111
     device_number: 0
     alt_limit: -420
-    pointing_threshold: 0.1 # arcmins
+    pointing_threshold: 0.06 # arcmins
     guider:
-      PIX2TIME: 
-        '+x': 69.33
-        '-x': 69.26
-        '+y': 69.23
-        '-y': 69.34
-      RA_AXIS: 'x'
+      PIX2TIME:
+        '+x': 69.32860207831231
+        '-x': 69.05795081331794
+        '+y': 69.32860207831231
+        '-y': 69.32860207831231
+      RA_AXIS: 'y'
       DIRECTIONS:
-        '+x': East
-        '-x': West
-        '+y': South
-        '-y': North
+        '+x': North
+        '-x': South
+        '+y': East
+        '-y': West
       PID_COEFFS:
         'x': {'p': 0.70, 'i': 0.02, 'd': 0.0}
         'y': {'p': 0.50, 'i': 0.02, 'd': 0.0}
@@ -35,19 +35,19 @@ Camera:
     flats:
       target_adu: [31500, 10500]
       bias_offset: 300
-      lower_exptime_limit: 2
-      upper_exptime_limit: 15
+      lower_exptime_limit: 6
+      upper_exptime_limit: 30
     paired_devices: 
       Telescope: telescope_Callisto
       Focuser: focuser_Callisto
-      # Dome: dome_Callisto
+      Dome: dome_Callisto
       FilterWheel: fw_Callisto
       ObservingConditions: weather_Callisto
       SafetyMonitor: safety_Callisto
-# Dome:
-#   - device_name: dome_Callisto
-#     ip: localhost:11111
-#     device_number: 0
+Dome:
+  - device_name: dome_Callisto
+    ip: localhost:11111
+    device_number: 0
 FilterWheel:
   - device_name: fw_Callisto
     ip: localhost:11111 

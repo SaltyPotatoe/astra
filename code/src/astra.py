@@ -1701,6 +1701,7 @@ class Astra():
                         try:
                             offset_ra, offset_dec, wcs, angular_separation = utils.point_correction(filepath, action_value['ra'], action_value['dec'])
                             # hdr += wcs.to_header()
+                            print(wcs.to_header(), angular_separation, offset_ra, offset_dec)
                         except Exception as e:
                             self.__log('warning', f"Error running pointing correction for {action_value['object']} with {row['device_name']}: {str(e)}")
                             pointing_complete = True
@@ -1714,6 +1715,8 @@ class Astra():
                                 pointing_complete = True
                             else:
                                 self.__log('info', f"Pointing correction of {angular_separation.deg*60:.2f}\' required as it is outside threshold of {pointing_threshold*60:.2f}\'")
+                                self.__log('info', f"RA shift: {offset_ra}")
+                                self.__log('info', f"DEC shift: {offset_dec}")
 
                                 # sync telescope to corrected coordinates, TODO: check if right +-
                                 telescope = self.devices['Telescope'][paired_devices['Telescope']]
@@ -2169,9 +2172,6 @@ class Astra():
             nda = np.array(img, dtype=imgDataType).transpose()
         else:
             nda = np.array(img, dtype=imgDataType).transpose(2,1,0)
-
-        # SPECULOOS specific edit - rotate ccw 90
-        nda = np.rot90(nda, k=3)
 
         return nda
         
