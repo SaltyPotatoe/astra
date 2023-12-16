@@ -590,7 +590,7 @@ class Guider():
                     # open the newest image and check the field and filter
                     try:
                         with fits.open(newest_image) as fitsfile:
-                            newest_filter = fitsfile[0].header[FILTER_KEYWORD]
+                            newest_filter = fitsfile[0].header[FILTER_KEYWORD].replace("'", "")
                             newest_field = fitsfile[0].header[FIELD_KEYWORD]
                             newest_exptime = fitsfile[0].header[EXPTIME_KEYWORD]
                     except FileNotFoundError:
@@ -644,7 +644,7 @@ class Guider():
                 try:
                     with fits.open(last_file) as ff:
                         # current field and filter?
-                        current_filter = ff[0].header[FILTER_KEYWORD]
+                        current_filter = ff[0].header[FILTER_KEYWORD].replace("'", "")
                         current_field = ff[0].header[FIELD_KEYWORD]
                         current_exptime = ff[0].header[EXPTIME_KEYWORD]
                         # Look for a reference image for this field/filter

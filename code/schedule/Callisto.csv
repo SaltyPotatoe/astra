@@ -1,8 +1,8 @@
 device_type,device_name,action_type,action_value,start_time,end_time
-Camera,camera_Callisto,open,{},2023-12-14 23:21:44.000,2023-12-14 23:31:44.000
-Camera,camera_Callisto,flats,"{'filter': ['I+z'], 'n': [10]}",2023-12-14 23:32:44.000,2023-12-15 00:07:20.000
-Camera,camera_Callisto,object,"{'object': 'Sp0328+1129', 'filter': 'I+z', 'ra': 52.1444, 'dec': 11.497691944444444, 'exptime': 59, 'guiding': True, 'pointing': True}",2023-12-15 00:07:20.019,2023-12-15 04:32:40.019
-Camera,camera_Callisto,object,"{'object': 'Sp0830+0947-2', 'filter': 'I+z', 'ra': 127.63567916666666, 'dec': 9.787621111111111, 'exptime': 28, 'guiding': True, 'pointing': True}",2023-12-15 04:34:40.019,2023-12-15 09:06:00.019
-Camera,camera_Callisto,flats,"{'filter': ['I+z'], 'n': [10]}",2023-12-15 09:06:00.019,2023-12-15 09:20:00.019
-Camera,camera_Callisto,close,{},2023-12-15 09:25:00.019,2023-12-15 09:27:00.019
-Camera,camera_Callisto,calibration,"{'exptime': [0,10,15,28,30,59,60,120], 'n': [7,7,7,7,7,7,7,7]}",2023-12-15 09:28:00.019,2023-12-15 10:52:00.019
+Camera,camera_Callisto,open,{},2023-12-16 00:03:11.508,2023-12-16 09:10:38.028
+Camera,camera_Callisto,flats,"{'filter': ['I+z', ""z'""], 'n': [10, 10]}",2023-12-16 00:03:11.508,2023-12-16 00:08:20.020
+Camera,camera_Callisto,object,"{'object': 'Sp0426+0336', 'filter': 'I+z', 'ra': 66.58308333333333, 'dec': 3.6100480555555556, 'exptime': 22, 'guiding': True, 'pointing': False}",2023-12-16 00:08:20.020,2023-12-16 04:33:20.020
+Camera,camera_Callisto,object,"{'object': 'Sp0642-6707', 'filter': ""z'"", 'ra': 100.61784583333332, 'dec': -67.12215388888889, 'exptime': 10, 'guiding': True, 'pointing': False}",2023-12-16 04:35:20.020,2023-12-16 09:06:40.020
+Camera,camera_Callisto,flats,"{'filter': ['I+z', ""z'""], 'n': [10, 10]}",2023-12-16 09:06:40.020,2023-12-16 09:10:38.028
+Camera,camera_Callisto,close,{},2023-12-16 09:10:38.028,2023-12-16 09:11:38.028
+Camera,camera_Callisto,calibration,"{'exptime': [0, 10, 15, 22, 30, 60, 120], 'n': [10, 10, 10, 10, 10, 10, 10]}",2023-12-16 09:10:38.028,2023-12-16 10:30:38.028

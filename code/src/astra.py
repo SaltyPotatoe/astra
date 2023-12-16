@@ -1730,9 +1730,10 @@ class Astra():
                     if action_value['guiding'] is True:
                         
                         self.__log('info', f"Starting guiding for {paired_devices['Telescope']}")
-
+                        
+                        filter_name = action_value['filter'].replace("'", "")
                         glob_str = os.path.join("..", "images", folder, 
-                                                f"{row['device_name']}_{action_value['filter']}_{action_value['object']}_{action_value['exptime']}_*.fits")
+                                                f"{row['device_name']}_{filter_name}_{action_value['object']}_{action_value['exptime']}_*.fits")
                         
                         th = Thread(target=self.guider[paired_devices['Telescope']].guider_loop, args=(camera.device_name, glob_str,), daemon=True)
                         th.start()
@@ -2209,12 +2210,14 @@ class Astra():
 
         hdu = fits.PrimaryHDU(nda, header=hdr)
 
+        filter_name = hdr['FILTER'].replace("'", "")
+
         if hdr['IMAGETYP'] == 'Light Frame':
-            filename = f"{device.device_name}_{hdr['FILTER']}_{hdr['OBJECT']}_{hdr['EXPTIME']}_{date.strftime('%Y%m%d_%H%M%S.%f')[:-3]}.fits"
+            filename = f"{device.device_name}_{filter_name}_{hdr['OBJECT']}_{hdr['EXPTIME']}_{date.strftime('%Y%m%d_%H%M%S.%f')[:-3]}.fits"
         elif hdr['IMAGETYP'] in ['Bias Frame', 'Dark Frame']:
             filename = f"{device.device_name}_{hdr['IMAGETYP']}_{hdr['EXPTIME']}_{date.strftime('%Y%m%d_%H%M%S.%f')[:-3]}.fits"
         else:
-            filename = f"{device.device_name}_{hdr['FILTER']}_{hdr['IMAGETYP']}_{hdr['EXPTIME']}_{date.strftime('%Y%m%d_%H%M%S.%f')[:-3]}.fits"
+            filename = f"{device.device_name}_{filter_name}_{hdr['IMAGETYP']}_{hdr['EXPTIME']}_{date.strftime('%Y%m%d_%H%M%S.%f')[:-3]}.fits"
         
         filepath = os.path.join('..', 'images', folder, filename)
 
