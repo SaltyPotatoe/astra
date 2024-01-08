@@ -2079,6 +2079,8 @@ class Astra():
                                 device_name = paired_devices['Camera'],
                                 log_message = f"Setting Camera {paired_devices['Camera']} StartY to {int(numy/2 - 32)}")
             
+            time.sleep(1) # wait for camera to settle
+            
             # initial exposure time guess
             if exptime is None and sun_rising is False:
                 exptime = lower_exptime_limit
