@@ -28,7 +28,7 @@ from multiprocessing import Manager
 sql3wlogger = logging.getLogger("sqlite3worker")
 sql3wlogger.setLevel(logging.INFO)
 
-ASTRA_VER = '0.2.1'
+ASTRA_VER = '0.2.2'
 
 def update_times(df, time_factor):
     '''
@@ -2066,18 +2066,21 @@ class Astra():
             camera = self.devices['Camera'][paired_devices['Camera']]
 
             # set camera to view small area to speed up read times, such to determine right exposure time (assuming detector is bigger than 64x64)
-            self.monitor_action('Camera', 'NumX', 64, 'NumX',
-                                device_name = paired_devices['Camera'],
-                                log_message = f"Setting Camera {paired_devices['Camera']} NumX to 64")
-            self.monitor_action('Camera', 'NumY', 64, 'NumY',
-                                device_name = paired_devices['Camera'],
-                                log_message = f"Setting Camera {paired_devices['Camera']} NumY to 64")
-            self.monitor_action('Camera', 'StartX', int(numx/2 - 32), 'StartX',
-                                device_name = paired_devices['Camera'],
-                                log_message = f"Setting Camera {paired_devices['Camera']} StartX to {int(numx/2 - 32)}")
-            self.monitor_action('Camera', 'StartY', int(numy/2 - 32), 'StartY',
-                                device_name = paired_devices['Camera'],
-                                log_message = f"Setting Camera {paired_devices['Camera']} StartY to {int(numy/2 - 32)}")
+            # self.monitor_action('Camera', 'NumX', 64, 'NumX',
+            #                     device_name = paired_devices['Camera'],
+            #                     log_message = f"Setting Camera {paired_devices['Camera']} NumX to 64")
+            # time.sleep(1)
+            # self.monitor_action('Camera', 'NumY', 64, 'NumY',
+            #                     device_name = paired_devices['Camera'],
+            #                     log_message = f"Setting Camera {paired_devices['Camera']} NumY to 64")
+            # time.sleep(1)
+            # self.monitor_action('Camera', 'StartX', int(numx/2 - 32), 'StartX',
+            #                     device_name = paired_devices['Camera'],
+            #                     log_message = f"Setting Camera {paired_devices['Camera']} StartX to {int(numx/2 - 32)}")
+            # time.sleep(1)
+            # self.monitor_action('Camera', 'StartY', int(numy/2 - 32), 'StartY',
+            #                     device_name = paired_devices['Camera'],
+            #                     log_message = f"Setting Camera {paired_devices['Camera']} StartY to {int(numy/2 - 32)}")
             
             time.sleep(1) # wait for camera to settle
             
@@ -2087,7 +2090,7 @@ class Astra():
             elif exptime is None and sun_rising is True:
                 exptime = upper_exptime_limit
 
-            self.__log('info', f"Exposing subframe of {paired_devices['Camera']} for exposure time {exptime} s")
+            self.__log('info', f"Exposing full frame of {paired_devices['Camera']} for exposure time {exptime} s")
             camera.get('StartExposure', Duration = exptime, Light = True)
             
             getting_exptime = True
@@ -2114,7 +2117,7 @@ class Astra():
                                 self.__log('info', f"Sun is rising, waiting 10s to try again. Sun is at {sun_altaz.alt.degree} degrees.")
                                 time.sleep(10)
                                 exptime = upper_exptime_limit
-                                self.__log('info', f"Exposing subframe of {paired_devices['Camera']} for exposure time {exptime}s")
+                                self.__log('info', f"Exposing full frame of {paired_devices['Camera']} for exposure time {exptime}s")
                                 camera.get('StartExposure', Duration = exptime, Light = True)
                             else:
                                 self.__log('info', f"Sun is setting. Sun at {sun_altaz.alt.degree} degrees.")
@@ -2128,7 +2131,7 @@ class Astra():
                                 self.__log('info', f"Sun is setting, waiting 10s to try again. Sun is at {sun_altaz.alt.degree} degrees.")
                                 time.sleep(10)
                                 exptime = lower_exptime_limit
-                                self.__log('info', f"Exposing subframe of {paired_devices['Camera']} for exposure time {exptime}s")
+                                self.__log('info', f"Exposing full frame of {paired_devices['Camera']} for exposure time {exptime}s")
                                 camera.get('StartExposure', Duration = exptime, Light = True)
                             else:
                                 self.__log('info', f"Sun is rising. Sun at {sun_altaz.alt.degree} degrees.")
@@ -2138,7 +2141,7 @@ class Astra():
                             self.__log('info', f"Exposure time of {exptime}s needed for next flat is within user defined tolerance")
                             getting_exptime = False
                         #     # start next exposure to check if correct?
-                        #     self.__log('info', f"Exposing subframe of {paired_devices['Camera']} for exposure time {exptime}s to check if correct exposure time")
+                        #     self.__log('info', f"Exposing full frame of {paired_devices['Camera']} for exposure time {exptime}s to check if correct exposure time")
                         #     camera.get('StartExposure', Duration = exptime, Light = True)
 
                     else:
@@ -2148,18 +2151,21 @@ class Astra():
 
                 
             # set camera back to original framing
-            self.monitor_action('Camera', 'StartX', startx, 'StartX',
-                                device_name = paired_devices['Camera'],
-                                log_message = f"Setting Camera {paired_devices['Camera']} StartX to {startx}")
-            self.monitor_action('Camera', 'StartY', starty, 'StartY',
-                                device_name = paired_devices['Camera'],
-                                log_message = f"Setting Camera {paired_devices['Camera']} StartY to {starty}")
-            self.monitor_action('Camera', 'NumX', numx, 'NumX',
-                                device_name = paired_devices['Camera'],
-                                log_message = f"Setting Camera {paired_devices['Camera']} NumX to {numx}")
-            self.monitor_action('Camera', 'NumY', numy, 'NumY',
-                                device_name = paired_devices['Camera'],
-                                log_message = f"Setting Camera {paired_devices['Camera']} NumY to {numy}")
+            # self.monitor_action('Camera', 'StartX', startx, 'StartX',
+            #                     device_name = paired_devices['Camera'],
+            #                     log_message = f"Setting Camera {paired_devices['Camera']} StartX to {startx}")
+            # time.sleep(1)
+            # self.monitor_action('Camera', 'StartY', starty, 'StartY',
+            #                     device_name = paired_devices['Camera'],
+            #                     log_message = f"Setting Camera {paired_devices['Camera']} StartY to {starty}")
+            # time.sleep(1)
+            # self.monitor_action('Camera', 'NumX', numx, 'NumX',
+            #                     device_name = paired_devices['Camera'],
+            #                     log_message = f"Setting Camera {paired_devices['Camera']} NumX to {numx}")
+            # time.sleep(1)
+            # self.monitor_action('Camera', 'NumY', numy, 'NumY',
+            #                     device_name = paired_devices['Camera'],
+            #                     log_message = f"Setting Camera {paired_devices['Camera']} NumY to {numy}")
             
             time.sleep(1) # wait for camera to settle
             

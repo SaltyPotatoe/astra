@@ -61,5 +61,5 @@ SafetyMonitor:
     ip: localhost:11111
     device_number: 0
 Misc:
-  Webcam: http://localhost:8888/inside
+  Webcam: http://172.16.0.198:8888/inside
   backup_time: '12:00'
