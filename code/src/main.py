@@ -225,6 +225,14 @@ async def interrupt(observatory: str):
 
     return {"status": "success", "data": "null", "message": ""}
 
+@app.get("/api/ackastelos/{observatory}")
+async def ackastelos(observatory: str):
+    obs = observatories[observatory]
+
+    obs.astelos_check_and_ack_error()
+
+    return {"status": "success", "data": "null", "message": ""}
+
 @app.get("/api/connect/{observatory}")
 async def connect(observatory: str):
     obs = observatories[observatory]

@@ -459,7 +459,8 @@ def check_astelos_error(telescope):
                             ["ERR_DeviceError","axis #0\\| amplifier fault #07H\\| safe torque-off circuit fault","2","HA"],
                             ["ERR_RunDevError","Working pressure suddenly lost","2","HA"],
                             ["ERR_DeviceError","axis #0\\| amplifier fault #07H\\| safe torque-off circuit fault","2","DEC"],
-                            ["ERR_RunDevError","Working pressure suddenly lost","2","DEC"] ]
+                            ["ERR_RunDevError","Working pressure suddenly lost","2","DEC"],
+                            ["ERR_DeviceWarn", "Malformed telegram from GPS", "4", "LOCAL"] ]
 
     df_allowed = pd.DataFrame(allowed_err, columns = ['error', 'detail', 'level', 'component'])
     df_list = pd.DataFrame(columns = ['error', 'detail', 'level', 'component'])
@@ -497,16 +498,13 @@ def check_astelos_error(telescope):
     else:
         return False, df_list, messages
 
-def ack_astelos_error(telescope):
+def ack_astelos_error(telescope, valid, all_errors, messages):
     """
     Acknowledge error if valid
 
     """
 
     start_time = time.time()
-
-    # check telescope status
-    valid, all_errors, messages = check_astelos_error(telescope)
 
     while valid and len(all_errors) > 0:
 

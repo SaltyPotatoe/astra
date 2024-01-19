@@ -753,16 +753,19 @@ class Astra():
 
                 if valid and len(all_errors) > 0:
 
-                    self.__log('info', f"Attempting to acknowledge AsTelOS errors for {telescope_name}")
-                    ack, messages = utils.ack_astelos_error(telescope)
+                    self.__log('info', f"Attempting to acknowledge AsTelOS errors for {telescope_name}: {messages}")
+                    ack, messages = utils.ack_astelos_error(telescope, valid, all_errors, messages)
 
                     if ack:
-                        self.__log('info', f"AsTelOS errors successfully acknowledged for {telescope_name}")
+                        self.__log('info', f"AsTelOS errors successfully acknowledged for {telescope_name}: {messages}")
                     else:
                         self.error_source.append({'device_type': 'Telescope', 'device_name': telescope_name, 'error': "AsTelOS errors not successfully acknowledged"})
                         self.__log('error', f"AsTelOS errors not successfully acknowledged for {telescope_name}: {messages}")
+                
+                if not valid:
+                    self.error_source.append({'device_type': 'Telescope', 'device_name': telescope_name, 'error': "AsTelOS errors not valid"})
+                    self.__log('error', f"AsTelOS errors invalid for {telescope_name}: {messages}")
 
-    
     def open_observatory(self, paired_devices : dict = None) -> None:
         """
         Opens the observatory in a controlled sequence: first, it opens the dome shutter if available, 
