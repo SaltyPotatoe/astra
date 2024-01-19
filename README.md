@@ -12,7 +12,7 @@ Works currently in progress are listed in the [issues tab](https://github.com/pp
 
 ## Features
 
-🧑‍💻 **Remote Control**: Astra enables remote control of observatory equipment, allowing you to operate the observatory from anywhere in your local network, or anywhere with an internet connection when using a VPN or a tunneling service such as [ngrok](https://ngrok.com/).
+🧑‍💻 **Remote Control**: Astra enables remote control of observatory equipment, allowing you to operate the observatory from anywhere in your local network, or anywhere with an internet connection when using a VPN or a tunneling service.
 
 🤖 **Automated**: You can schedule and execute automated sequences using Astra. Define observation targets, parameters, start and end times, and let Astra handle the rest.
 
@@ -27,25 +27,26 @@ Works currently in progress are listed in the [issues tab](https://github.com/pp
 ```
 git clone https://github.com/ppp-one/astra.git
 cd astra
-conda env create -f environment.yml
+conda env create -f <operating system>-environment.yml
 ```
 
 ### Usage
 
 1. Have Alpaca compliant equipment or [simulators](https://github.com/ASCOMInitiative/ASCOM.Alpaca.Simulators) active in your local network. 
-2. Edit the config file `config/<observatory-name>.yml` to specify the observatory parameters and equipment's connection with Alpaca. See `config/Ganymede.yml` as an example.
-3. Have a schedule file `schedule/<observatory-name>.csv` ready to be used. See `schedule/Ganymede.csv` as an example.
+2. Edit the config file `config/<observatory-name>.yml` to specify the observatory parameters and equipment's connection with Alpaca. See `config/Callisto.yml` as an example.
+3. Adjust `config/<observatory-name>_fits_headers.csv` to your needs, specifically look at the rows with `astra_fixed`. See `config/Callisto_fits_headers.csv` as an example.
+3. Have a schedule file `schedule/<observatory-name>.csv` ready to be used. See `schedule/Callisto.csv` as an example.
 4. Remove any unused `.yml` files in the `config` folder, and `.csv` files in the schedule folder. Otherwise, Astra will pick them up.
 5. Then run the following commands to start Astra:
 
 ```
 conda activate astra
-python code/src/main.py --truncate # truncate is for testing locally, it brings the schedule to present day and shortens it 100x.
+python code/src/main.py --truncate # truncate is for testing locally, it brings the schedule to present day and shortens it 10x.
 ```
 
 5. Open the browser and go to `http://localhost:8000/` to access Astra.
 
-Below is a screenshot of Astra running a set of schedules for the telescopes Io and Ganymede:
+Below is a screenshot of Astra working at SPECULOOS:
 
 ![Screenshot of Astra's frontend running a schedule](screenshot.png)
 
