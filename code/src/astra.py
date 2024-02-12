@@ -71,7 +71,7 @@ def update_times(df, time_factor):
 
 
 class Astra():
-    def __init__(self, config_filename : str, debug : bool = False, truncate_schedule : bool = False):
+    def __init__(self, config_filename : str, debug : bool = False, truncate_schedule : bool = False, speculoos : bool = False):
         """
         Initialize the Astra object.
 
@@ -107,6 +107,7 @@ class Astra():
 
         self.debug = debug
         self.truncate_schedule = truncate_schedule
+        self.speculoos = speculoos
 
         self.heartbeat = {}
 
@@ -354,7 +355,7 @@ class Astra():
             for device_name in self.devices[device_type]:
                 try:
                     # SPECULOOS EDIT
-                    if device_type == 'Focuser':
+                    if device_type == 'Focuser' and self.speculoos:
                         self.__log('warning', f"{device_type} {device_name} skipping connecting, because method not valid. - SPECULOOS specific")
                     else:
                         self.devices[device_type][device_name].set("Connected", True) ## slow?
@@ -776,11 +777,12 @@ class Astra():
 
         """
 
-        # SPECULOOS EDIT
-        self.pause_polls(['Dome', 'Telescope', 'Focuser'])
+        if self.speculoos:
+            # SPECULOOS EDIT
+            self.pause_polls(['Dome', 'Telescope', 'Focuser'])
 
-        # SPECULOOS EDIT  -- TODO: this should return a state before continuing
-        self.astelos_check_and_ack_error()
+            # SPECULOOS EDIT  -- TODO: this should return a state before continuing
+            self.astelos_check_and_ack_error()
 
         if 'Dome' in self.observatory:
             if self.weather_safe and self.error_free and (self.interrupt is False):
@@ -793,8 +795,9 @@ class Astra():
                     self.monitor_action('Dome', 'ShutterStatus', 0, 'OpenShutter',
                                         log_message = "Opening Dome shutter(s)")
 
-                # SPECULOOS EDIT
-                self.astelos_check_and_ack_error()
+                if self.speculoos:
+                    # SPECULOOS EDIT
+                    self.astelos_check_and_ack_error()
 
         if 'Telescope' in self.observatory:
             if self.weather_safe and self.error_free and (self.interrupt is False):
@@ -806,12 +809,13 @@ class Astra():
                 else:
                     self.monitor_action('Telescope', 'AtPark', False, 'Unpark',
                                         log_message = "Unparking Telescope(s)")
-                    
-                # SPECULOOS EDIT
-                self.astelos_check_and_ack_error()
-
-        # SPECULOOS EDIT
-        self.resume_polls(['Dome', 'Telescope', 'Focuser'])
+                
+                if self.speculoos:
+                    # SPECULOOS EDIT
+                    self.astelos_check_and_ack_error()
+        if self.speculoos:
+            # SPECULOOS EDIT
+            self.resume_polls(['Dome', 'Telescope', 'Focuser'])
 
     def close_observatory(self, paired_devices : dict = None) -> None:
         '''
@@ -830,9 +834,9 @@ class Astra():
                 Example: {'Telescope': 'TelescopeName', 'Dome': 'DomeName'}
 
         '''
-        
-        # SPECULOOS EDIT
-        self.pause_polls(['Dome', 'Telescope', 'Focuser'])
+        if self.speculoos:
+            # SPECULOOS EDIT
+            self.pause_polls(['Dome', 'Telescope', 'Focuser'])
 
         if 'Telescope' in self.observatory:
 
@@ -893,8 +897,9 @@ class Astra():
                 self.monitor_action('Dome', 'ShutterStatus', 1, 'CloseShutter',
                                         log_message = "Closing Dome shutter(s)")
         
-        # SPECULOOS EDIT
-        self.resume_polls(['Dome', 'Telescope', 'Focuser'])
+        if self.speculoos:
+            # SPECULOOS EDIT
+            self.resume_polls(['Dome', 'Telescope', 'Focuser'])
 
     def start_toggle_interrupt(self) -> None:
         '''
@@ -1409,7 +1414,7 @@ class Astra():
 
             slewing = telescope.get('Slewing')
 
-        # SPECULOOS EDIT - slew settle time (guess)
+        # slew settle time (guess)
         time.sleep(1)
 
     def check_conditions(self, row : dict = None) -> bool:

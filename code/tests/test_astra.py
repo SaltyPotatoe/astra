@@ -10,6 +10,7 @@ from src.astra import Astra  # noqa: E402
 
 obs = None
 
+########################
 
 # startup (should be separated)
     # queue_get() thread
@@ -27,7 +28,7 @@ def test_startup():
     try:
         obs = Astra('/Users/peter/Github/astra/code/config/Callisto.yml')
         time.sleep(0.1) # to permit sqlworker to catchup
-        ## TODO: descript property denoting initialisation
+        ## TODO: status property denoting initialisation
         assert True
     except Exception as e:
         raise e
@@ -112,6 +113,8 @@ def test_load_devices():
     assert isinstance(obs.devices, dict)
     assert obs.error_free is True
 
+########################
+
 # connect_all()
     # test device polling
     # start_watchdog() TODO: Move out of connect all
@@ -174,9 +177,30 @@ def test_start_watchdog():
     # check if alive
     assert watchdog_thread.is_alive() is True
 
+########################
+
 # def test_watchdog():
     # different scenerios
+
+########################
     
+# close_observatory()
+    
+def test_close_observatory():
+    '''
+    Test close observatory
+    '''
+
+    # close without paired_devices
+    obs.close_observatory()
+
+    # close with paired_devices
+    paired_devices = obs.observatory['Camera'][0]['paired_devices']
+    obs.close_observatory(paired_devices)
+
+    # TODO: more thorough test
+    assert obs.error_free is True
+
 # open_observatory()
     
 def test_open_observatory():
@@ -187,20 +211,108 @@ def test_open_observatory():
     # open without paired_devices
     obs.open_observatory()
 
+    # close all to test with open paired devices
+    obs.close_observatory()
+
     # open with paired_devices
     paired_devices = obs.observatory['Camera'][0]['paired_devices']
     obs.open_observatory(paired_devices)
 
-
-    # NEED to make speculoos specific true flag based.
-
-    assert True
-
-
-
-# close_observatory()
+    # TODO: more thorough test
+    assert obs.error_free is True
 
 # start_schedule()
+
+def update_times(df, time_factor):
+    '''
+    Update the start and end times to present day factored by the time factor
+    '''
+
+    new_rows = []
+    prev_start_time = None
+    prev_end_time = None
+    prev_new_start_time = None
+    for i, row in df.iterrows():
+
+        device_type, device_name, action_type, action_value, start_time, end_time, completed = row
+        
+        se_time_diff = end_time - start_time
+        se_time_diff = se_time_diff / time_factor
+        
+        
+        new_start_time = datetime.utcnow()
+        
+        
+        if prev_end_time:
+            ss_time_diff = start_time - prev_start_time
+            ss_time_diff = ss_time_diff / time_factor
+            
+            new_start_time = prev_new_start_time + ss_time_diff
+            
+        
+        new_end_time = new_start_time + se_time_diff
+
+        new_row = [device_type, device_name, action_type, action_value, new_start_time, new_end_time, completed]
+        new_rows.append(new_row)
+        
+        prev_start_time = start_time
+        prev_end_time = end_time
+        
+        prev_new_start_time = new_start_time
+    
+    return pd.DataFrame(new_rows, columns=df.columns)
+
+def write_schedule():
+    import tempfile
+
+    schedule = """
+    device_type,device_name,action_type,action_value,start_time,end_time
+    Camera,camera_Callisto,open,{},2024-01-11 23:31:40.915,2024-01-12 10:07:40.253
+    Camera,camera_Callisto,flats,"{'filter': ['I+z'], 'n': [10]}",2024-01-11 23:31:40.915,2024-01-12 00:16:20.020
+    Camera,camera_Callisto,object,"{'object': 'Sp0711-3824', 'filter': 'I+z', 'ra': 107.7545375, 'dec': -38.41298694444444, 'exptime': 13, 'guiding': True, 'pointing': False}",2024-01-12 00:16:20.020,2024-01-12 04:49:20.020
+    Camera,camera_Callisto,object,"{'object': 'Sp0853-0329', 'filter': 'I+z', 'ra': 133.40066666666664, 'dec': -3.4922780555555555, 'exptime': 21, 'guiding': True, 'pointing': False}",2024-01-12 04:51:20.020,2024-01-12 09:23:00.030
+    Camera,camera_Callisto,flats,"{'filter': ['I+z'], 'n': [10]}",2024-01-12 09:23:00.030,2024-01-12 10:07:40.253
+    Camera,camera_Callisto,close,{},2024-01-12 10:07:40.253,2024-01-12 10:12:40.253
+    Camera,camera_Callisto,calibration,"{'exptime': [0, 10, 13, 15, 21, 30, 60, 120], 'n': [10, 10, 10, 10, 10, 10, 10, 10]}",2024-01-12 10:12:40.253,2024-01-12 10:37:40.253
+    """
+
+    fp = tempfile.NamedTemporaryFile(mode='w+', delete=False)
+
+    # write schedule to file
+    fp.write(schedule)
+
+    # Close the file
+    fp.close()
+
+    # df = pd.read_csv(fp.name)
+    obs.schedule_path = fp.name
+
+    obs.read_schedule()    
+    obs.schedule = update_times(obs.schedule, 100)
+
+def test_start_schedule():
+    '''
+    Test start schedule
+    '''
+
+    write_schedule()
+
+    obs.start_schedule()
+
+    obs.queue.put(({}, {"type" : "log", "data" : ('info', obs.schedule.to_string() )}))
+
+    while obs.schedule_running is True:
+        time.sleep(1)
+        
+        # if current time is greater than the end time of the last schedule
+        if datetime.utcnow() > obs.schedule.iloc[-1]['end_time'] + pd.Timedelta(seconds=30):
+            assert False
+
+    assert obs.error_free is True
+    assert obs.schedule_running is False
+    
+
+
 
 # cool_camera()
 
