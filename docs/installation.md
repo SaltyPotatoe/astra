@@ -9,15 +9,23 @@ git clone https://github.com/ppp-one/astra.git
 then, depending on your use case, install Astra with the following methods.
 
 ## pip
-Astra can be installed as a local python package with
+It is highly recommended to install Astra in a virtual/conda environment. Start by creating such an environment and activating it with
 
-```bash
-pip install -e {path_to_astra}
-```
-
-It is highly recommended to install Astra in a virtual/conda environment. For example:
 ```bash
 conda create -n astra python=3.11
+conda activate astra
+```
+
+then install Astra with
+
+```bash
+pip install -e {path_to_astra_clone}
+```
+
+If you want to include dependencies for testing and development, install Astra with
+
+```bash
+pip install -e "{path_to_astra_clone}[test]"
 ```
 
 ## conda
