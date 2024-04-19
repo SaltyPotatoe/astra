@@ -18,6 +18,7 @@ from fastapi import FastAPI, Request, WebSocket
 from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
 from fastapi.templating import Jinja2Templates
 
+from astra import CONFIG
 from astra.astra_object import Astra
 
 # change base directory to code/src
@@ -49,8 +50,7 @@ def load_observatories():
     global fws
     global debug
 
-    config_dir = os.path.join("..", "config")
-    config_files = glob(os.path.join(config_dir, "*.yml"))
+    config_files = glob(os.path.join(CONFIG.folder_telescope, "*.yml"))
 
     for config_filename in config_files:
         obs = Astra(config_filename, debug, truncate_schedule, speculoos=True)
@@ -68,6 +68,11 @@ def load_observatories():
                 fws[obs.observatory_name][fw_name] = obs.devices["FilterWheel"][
                     fw_name
                 ].get("Names")
+
+
+def observatory_db(name):
+    db = sqlite3.connect(CONFIG.folder_log / name + ".db")
+    return db
 
 
 def clean_up():
@@ -293,8 +298,7 @@ async def schedule(observatory: str):
 
 @app.get("/api/db/polling/{observatory}/{device_type}")
 async def polling(observatory: str, device_type: str):
-    db = sqlite3.connect(os.path.join("..", "log", observatory + ".db"))
-
+    db = observatory_db(observatory)
     q = f"""SELECT * FROM polling WHERE device_type = '{device_type}' AND datetime > datetime('now', '-1 day')"""
 
     df = pd.read_sql_query(q, db)
@@ -321,8 +325,7 @@ async def websocket_log(websocket: WebSocket, observatory: str):
     await websocket.accept()
     obs = observatories[observatory]
 
-    db = sqlite3.connect(os.path.join("..", "log", observatory + ".db"))
-
+    db = observatory_db(observatory)
     q = """SELECT * FROM (SELECT * FROM log ORDER BY datetime DESC LIMIT 1000) a ORDER BY datetime ASC"""
     initial_df = pd.read_sql_query(q, db)
 
@@ -369,8 +372,7 @@ async def websocket_log(websocket: WebSocket, observatory: str):
 async def websocket_weather(websocket: WebSocket, observatory: str):
     # this + frontend need work...
     await websocket.accept()
-    db = sqlite3.connect(os.path.join("..", "log", observatory + ".db"))
-
+    db = observatory_db(observatory)
     # TODO: change to limit instead of datetime
     q = """SELECT * FROM polling WHERE device_type = 'ObservingConditions' AND datetime > datetime('now', '-1 day')"""
 

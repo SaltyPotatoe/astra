@@ -23,6 +23,8 @@ from donuts import Donuts
 from donuts.image import Image
 from scipy.ndimage import median_filter
 
+from astra import CONFIG
+
 # pylint: disable=invalid-name
 # pylint: disable=redefined-outer-name
 
@@ -136,13 +138,11 @@ def save_image(
         str: The file path to the saved image.
 
     """
-    if not os.path.exists(os.path.join("..", "images", "calibrate_guiding")):
-        print(
-            "Creating directory: {}".format(
-                os.path.join("..", "images", "calibrate_guiding")
-            )
-        )
-        os.makedirs(os.path.join("..", "images", "calibrate_guiding"))
+    calibrate_guiding_path = CONFIG.folder_images / "calibrate_guiding"
+
+    if not calibrate_guiding_path.exists():
+        print("Creating directory: {}".format(calibrate_guiding_path))
+        calibrate_guiding_path.mkdir(parents=True)
         print("Directory created")
 
     arr = device.ImageArray
@@ -164,9 +164,7 @@ def save_image(
 
     hdu = fits.PrimaryHDU(nda, header=hdr)
 
-    hdu.writeto(
-        os.path.join("..", "images", "calibrate_guiding", os.path.basename(filename))
-    )
+    hdu.writeto(calibrate_guiding_path / filename.name)
 
 
 def img_transform(device: Camera, img: np.array, maxadu: int) -> np.array:
@@ -269,7 +267,7 @@ def newFilename(direction, pulse_time, image_id):
     """
     filename = "step_{:03d}_d{}_{}ms.fits".format(image_id, direction, pulse_time)
 
-    filepath = os.path.join("..", "images", "calibrate_guiding", filename)
+    filepath = CONFIG.folder_images / "calibrate_guiding" / filename
 
     image_id += 1
     return filepath, image_id

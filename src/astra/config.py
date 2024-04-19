@@ -21,7 +21,7 @@ class Config:
     def __init__(self):
         self.folder_config.mkdir(exist_ok=True)
         self.config = self.load_config()
-        self.check_assets_folders()
+        self.check_assets_folders("log", "schedule", "telescope", "temp", "images")
 
     @property
     def folder_telescope(self):
@@ -38,7 +38,17 @@ class Config:
         """Folder where log files are stored."""
         return self.folder_assets / "log"
 
-    def check_assets_folders(self, exist_ok=True):
+    @property
+    def folder_temp(self):
+        """Folder where temporary files are stored."""
+        return self.folder_assets / "temp"
+
+    @property
+    def folder_images(self):
+        """Folder where image files are stored."""
+        return self.folder_assets / "images"
+
+    def check_assets_folders(self, names, exist_ok=True):
         """Check if the assets folders exist, if not create them, i.e.
         telescope, schedule, log. Base folder is defined in the config file as
         ``folder_assets``.
@@ -52,7 +62,7 @@ class Config:
         self.folder_assets = Path(self.config["folder_assets"])
         self.folder_assets.mkdir(exist_ok=exist_ok)
 
-        for folder in ["log", "schedule", "telescope"]:
+        for folder in names:
             if not (self.folder_assets / folder).exists():
                 (self.folder_assets / folder).mkdir()
                 print(f"Folder {self.folder_assets / folder} created")
