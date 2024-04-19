@@ -18,6 +18,7 @@ from fastapi import FastAPI, Request, WebSocket
 from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
 from fastapi.templating import Jinja2Templates
 
+from astra import CONFIG
 from astra.astra_object import Astra
 
 # change base directory to code/src
@@ -49,8 +50,7 @@ def load_observatories():
     global fws
     global debug
 
-    config_dir = os.path.join("..", "config")
-    config_files = glob(os.path.join(config_dir, "*.yml"))
+    config_files = glob(os.path.join(CONFIG.folder_telescope, "*.yml"))
 
     for config_filename in config_files:
         obs = Astra(config_filename, debug, truncate_schedule, speculoos=True)
@@ -68,6 +68,11 @@ def load_observatories():
                 fws[obs.observatory_name][fw_name] = obs.devices["FilterWheel"][
                     fw_name
                 ].get("Names")
+
+
+def observatory_db(name):
+    db = sqlite3.connect(CONFIG.folder_log / name + ".db")
+    return db
 
 
 def clean_up():
@@ -293,8 +298,7 @@ async def schedule(observatory: str):
 
 @app.get("/api/db/polling/{observatory}/{device_type}")
 async def polling(observatory: str, device_type: str):
-    db = sqlite3.connect(os.path.join("..", "log", observatory + ".db"))
-
+    db = observatory_db(observatory)
     q = f"""SELECT * FROM polling WHERE device_type = '{device_type}' AND datetime > datetime('now', '-1 day')"""
 
     df = pd.read_sql_query(q, db)
@@ -321,8 +325,7 @@ async def websocket_log(websocket: WebSocket, observatory: str):
     await websocket.accept()
     obs = observatories[observatory]
 
-    db = sqlite3.connect(os.path.join("..", "log", observatory + ".db"))
-
+    db = observatory_db(observatory)
     q = """SELECT * FROM (SELECT * FROM log ORDER BY datetime DESC LIMIT 1000) a ORDER BY datetime ASC"""
     initial_df = pd.read_sql_query(q, db)
 
@@ -369,8 +372,7 @@ async def websocket_log(websocket: WebSocket, observatory: str):
 async def websocket_weather(websocket: WebSocket, observatory: str):
     # this + frontend need work...
     await websocket.accept()
-    db = sqlite3.connect(os.path.join("..", "log", observatory + ".db"))
-
+    db = observatory_db(observatory)
     # TODO: change to limit instead of datetime
     q = """SELECT * FROM polling WHERE device_type = 'ObservingConditions' AND datetime > datetime('now', '-1 day')"""
 
@@ -579,19 +581,18 @@ async def websocket_endpoint(websocket: WebSocket, observatory: str):
 
                 shutter_status = polled["ShutterStatus"]["value"]
 
-                match shutter_status:
-                    case 0:
-                        status = "open"
-                    case 1:
-                        status = "closed"
-                    case 2:
-                        status = "opening"
-                    case 3:
-                        status = "closing"
-                    case 4:
-                        status = "error"
-                    case _:
-                        status = "unknown"
+                if shutter_status == 0:
+                    status = "open"
+                elif shutter_status == 1:
+                    status = "closed"
+                elif shutter_status == 2:
+                    status = "opening"
+                elif shutter_status == 3:
+                    status = "closing"
+                elif shutter_status == 4:
+                    status = "error"
+                else:
+                    status = "unknown"
 
                 dt = polled["ShutterStatus"]["datetime"]
 
@@ -674,21 +675,20 @@ async def websocket_endpoint(websocket: WebSocket, observatory: str):
 
                 camera_status = polled["CameraState"]["value"]
 
-                match camera_status:
-                    case 0:
-                        status = "idle"
-                    case 1:
-                        status = "waiting"
-                    case 2:
-                        status = "exposing"
-                    case 3:
-                        status = "reading"
-                    case 4:
-                        status = "download"
-                    case 5:
-                        status = "error"
-                    case _:
-                        status = "unknown"
+                if camera_status == 0:
+                    status = "idle"
+                elif camera_status == 1:
+                    status = "waiting"
+                elif camera_status == 2:
+                    status = "exposing"
+                elif camera_status == 3:
+                    status = "reading"
+                elif camera_status == 4:
+                    status = "download"
+                elif camera_status == 5:
+                    status = "error"
+                else:
+                    status = "unknown"
 
                 status += f" ({polled['CCDTemperature']['value']:.2f} C)"
 
