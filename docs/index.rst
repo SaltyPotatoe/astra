@@ -10,6 +10,8 @@ Astra
    :maxdepth: 2
    :caption: Contents:
 
+   installation
+   development
    operations
    modules
 
