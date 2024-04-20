@@ -8,10 +8,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-sys.path.append(
-    os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src")
-)
-from src.astra import Astra  # noqa: E402
+from astra.astra_object import Astra  # noqa: E402
 
 obs = None
 

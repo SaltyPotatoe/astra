@@ -18,16 +18,14 @@ from astropy.wcs import utils
 from photutils.background import Background2D, MedianBackground
 from scipy import ndimage
 
+from astra import CONFIG
+
 
 ## for new images
 def create_image_dir():
-    folder = (datetime.utcnow() - timedelta(days=0.5)).strftime("%Y%m%d")
-    mypath = f"../images/{folder}"
-    try:
-        if not os.path.isdir(mypath):
-            os.makedirs(mypath)
-    except OSError as e:
-        pass
+    date_str = (datetime.now(datetime.UTC) - timedelta(days=0.5)).strftime("%Y%m%d")
+    folder = CONFIG.folder_images / date_str
+    folder.mkdir(exist_ok=True)
     return folder
 
 
@@ -182,30 +180,29 @@ def hdr_times(hdr, fits_config, location, target):
 
     for i, row in fits_config[fits_config["fixed"] == False].iterrows():  # noqa: E712
         if row["device_type"] == "astra":
-            match row["header"]:
-                case "JD-OBS":
-                    hdr[row["header"]] = (jd, row["comment"])
-                case "JD-END":
-                    hdr[row["header"]] = (jdend, row["comment"])
-                case "HJD-OBS":
-                    hdr[row["header"]] = (hjd, row["comment"])
-                case "BJD-OBS":
-                    hdr[row["header"]] = (bjd, row["comment"])
-                case "MJD-OBS":
-                    hdr[row["header"]] = (mjd, row["comment"])
-                case "MJD-END":
-                    hdr[row["header"]] = (mjdend, row["comment"])
-                case "DATE-END":
-                    hdr[row["header"]] = (
-                        dateend.strftime("%Y-%m-%dT%H:%M:%S.%f"),
-                        row["comment"],
-                    )
-                case "LST":
-                    hdr[row["header"]] = (lstsec, row["comment"])
-                case "HA":
-                    hdr[row["header"]] = (ha, row["comment"])
-                case _:
-                    pass
+            if row["header"] == "JD-OBS":
+                hdr[row["header"]] = (jd, row["comment"])
+            elif row["header"] == "JD-END":
+                hdr[row["header"]] = (jdend, row["comment"])
+            elif row["header"] == "HJD-OBS":
+                hdr[row["header"]] = (hjd, row["comment"])
+            elif row["header"] == "BJD-OBS":
+                hdr[row["header"]] = (bjd, row["comment"])
+            elif row["header"] == "MJD-OBS":
+                hdr[row["header"]] = (mjd, row["comment"])
+            elif row["header"] == "MJD-END":
+                hdr[row["header"]] = (mjdend, row["comment"])
+            elif row["header"] == "DATE-END":
+                hdr[row["header"]] = (
+                    dateend.strftime("%Y-%m-%dT%H:%M:%S.%f"),
+                    row["comment"],
+                )
+            elif row["header"] == "LST":
+                hdr[row["header"]] = (lstsec, row["comment"])
+            elif row["header"] == "HA":
+                hdr[row["header"]] = (ha, row["comment"])
+            else:
+                pass
 
     z = (90 - hdr["ALTITUDE"]) * np.pi / 180
     hdr["AIRMASS"] = (1.002432 * np.cos(z) ** 2 + 0.148386 * np.cos(z) + 0.0096467) / (

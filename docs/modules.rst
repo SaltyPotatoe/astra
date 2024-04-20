@@ -1,5 +1,5 @@
-src
-===
+modules
+=======
 
 .. toctree::
    :maxdepth: 4

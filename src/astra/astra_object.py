@@ -12,16 +12,17 @@ import astropy.units as u
 import numpy as np
 import pandas as pd
 import psutil
-import utils
 import yaml
-from alpaca_device_process import AlpacaDevice
-
 # from ascom_device_process import AscomDevice
 from astropy.coordinates import EarthLocation, SkyCoord
 from astropy.io import fits
 from astropy.time import Time
-from guiding import Guider
-from sqlite3worker import Sqlite3Worker  # https://github.com/dashawn888/sqlite3worker
+# https://github.com/dashawn888/sqlite3worker
+from sqlite3worker import Sqlite3Worker
+
+from astra import CONFIG, utils
+from astra.alpaca_device_process import AlpacaDevice
+from astra.guiding import Guider
 
 # import traceback
 
@@ -152,17 +153,16 @@ class Astra:
         self.schedule_running = False
         self.interrupt = False
 
-        self.observatory = self.read_config(config_filename)
+        self.observatory = self.read_yaml(config_filename)
 
-        self.schedule_path = os.path.join(
-            "..", "schedule", f"{self.observatory_name}.csv"
-        )
+        self.schedule_path = CONFIG.folder_schedule / f"{self.observatory_name}.csv"
+
         self.schedule_mtime = os.path.getmtime(self.schedule_path)
         self.schedule = None
         self.schedule = self.read_schedule()
 
-        fits_config_path = os.path.join(
-            "..", "config", f"{self.observatory_name}_fits_headers.csv"
+        fits_config_path = (
+            CONFIG.folder_observatory / f"{self.observatory_name}_fits_headers.csv"
         )
         self.fits_config = pd.read_csv(fits_config_path)
 
@@ -238,7 +238,7 @@ class Astra:
             cursor (Sqlite3Worker): The cursor object for the newly created database.
         """
 
-        db_name = os.path.join("..", "log", f"{self.observatory_name}.db")
+        db_name = CONFIG.folder_log / f"{self.observatory_name}.db"
         cursor = Sqlite3Worker(db_name)
 
         db_command_0 = """CREATE TABLE IF NOT EXISTS polling (
@@ -286,16 +286,16 @@ class Astra:
                 # TODO: action
 
             dt_str = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
-            db_name = os.path.join("..", "log", f"{self.observatory_name}.db")
+            db_path = CONFIG.folder_log / f"{self.observatory_name}.db"
 
             # create backup directory if not exists
-            if not os.path.exists(os.path.join("..", "log", "archive")):
-                os.makedirs(os.path.join("..", "log", "archive"))
+            archive_path = CONFIG.folder_log / "archive"
+            archive_path.mkdir(exist_ok=True)
 
             tables = ["polling", "log"]
             # 'images', 'autoguider_ref', 'autoguider_log_new', 'autoguider_info_log'
 
-            db = sqlite3.connect(db_name)
+            db = sqlite3.connect(db_path)
             for table in tables:
                 # backup table
                 df = pd.read_sql_query(
@@ -327,7 +327,7 @@ class Astra:
             )
             self.__log("error", f"Error backing up database: {str(e)}")
 
-    def read_config(self, config_filename: str) -> dict:
+    def read_yaml(self, yaml_filename: str) -> dict:
         """
         Reads a YAML configuration file and returns a dictionary containing its contents.
 
@@ -341,14 +341,12 @@ class Astra:
         self.__log("info", "Reading config file")
 
         observatory = {}
-        with open(config_filename, "r") as stream:
+        with open(yaml_filename, "r") as stream:
             try:
                 observatory = yaml.safe_load(stream)
-                self.__log("info", f"Config file {config_filename} read")
+                self.__log("info", f"Config file {yaml_filename} read")
             except yaml.YAMLError as exc:
-                self.__log(
-                    "error", f"Error reading config file {config_filename}: {exc}"
-                )
+                self.__log("error", f"Error reading config file {yaml_filename}: {exc}")
 
         return observatory
 
@@ -767,23 +765,20 @@ class Astra:
                             datetime.utcnow() - sm_poll["IsSafe"]["datetime"]
                         ).total_seconds()
 
-                        match last_update:
-                            case _ if last_update > 3 and last_update < 30:
-                                self.__log(
-                                    "warning", f"Safety monitor {last_update}s stale"
-                                )
-                            case _ if last_update > 30:
-                                self.error_source.append(
-                                    {
-                                        "device_type": "SafetyMonitor",
-                                        "device_name": sm_name,
-                                        "error": f"Stale data {last_update}s",
-                                    }
-                                )
-                                self.__log(
-                                    "error", f"Safety monitor {last_update}s stale"
-                                )
-                                continue
+                        if last_update > 3 and last_update < 30:
+                            self.__log(
+                                "warning", f"Safety monitor {last_update}s stale"
+                            )
+                        elif last_update > 30:
+                            self.error_source.append(
+                                {
+                                    "device_type": "SafetyMonitor",
+                                    "device_name": sm_name,
+                                    "error": f"Stale data {last_update}s",
+                                }
+                            )
+                            self.__log("error", f"Safety monitor {last_update}s stale")
+                            continue
 
                         # action if weather unsafe
                         if sm_poll["IsSafe"]["value"] is False:
@@ -893,42 +888,42 @@ class Astra:
                     elif len(device_names) == 1 and len(device_types) == 1:
                         self.__log("warning", f"Device {device_names[0]} has errors.")
                         # only one device has errors
-                        match device_types[0]:
-                            case "SafetyMonitor":
-                                pass
-                            case "ObservingConditions":
-                                pass
-                            case "Telescope":
-                                pass
-                            case "Dome":
-                                pass
-                            case "Guider":
-                                pass
-                            case "Camera":
-                                pass
-                            case "FilterWheel":
-                                pass
-                            case "Focuser":
-                                pass
-                            case "Rotator":
-                                pass
-                            case "CoverCalibrator":
-                                pass
-                            case "Switch":
-                                pass
-                            case "Schedule":
-                                pass
-                            case "Queue":
-                                # restart queue?
-                                pass
-                            case "Headers":
-                                pass
-                            case "Watchdog":
-                                pass
-                            case "Backup":
-                                pass
-                            case _:
-                                pass
+                        # match device_types[0]:
+                        #     case "SafetyMonitor":
+                        #         pass
+                        #     case "ObservingConditions":
+                        #         pass
+                        #     case "Telescope":
+                        #         pass
+                        #     case "Dome":
+                        #         pass
+                        #     case "Guider":
+                        #         pass
+                        #     case "Camera":
+                        #         pass
+                        #     case "FilterWheel":
+                        #         pass
+                        #     case "Focuser":
+                        #         pass
+                        #     case "Rotator":
+                        #         pass
+                        #     case "CoverCalibrator":
+                        #         pass
+                        #     case "Switch":
+                        #         pass
+                        #     case "Schedule":
+                        #         pass
+                        #     case "Queue":
+                        #         # restart queue?
+                        #         pass
+                        #     case "Headers":
+                        #         pass
+                        #     case "Watchdog":
+                        #         pass
+                        #     case "Backup":
+                        #         pass
+                        #     case _:
+                        #         pass
                 except Exception as e:
                     self.__log("error", f"Error during error handling: {str(e)}")
                     # TODO: Panic mode
@@ -3060,7 +3055,7 @@ class Astra:
         else:
             filename = f"{device.device_name}_{filter_name}_{hdr['IMAGETYP']}_{hdr['EXPTIME']}_{date.strftime('%Y%m%d_%H%M%S.%f')[:-3]}.fits"
 
-        filepath = os.path.join("..", "images", folder, filename)
+        filepath = CONFIG.folder_images / folder / filename
 
         self.__log("debug", "Writing to disk")
         hdu.writeto(filepath)
@@ -3097,48 +3092,45 @@ class Astra:
         for i, row in self.fits_config.iterrows():
             if row["device_type"] == "astra" and row["fixed"] is True:
                 # custom headers
-                match row["header"]:
-                    case "FILTER":
-                        device = self.devices["FilterWheel"][
-                            paired_devices["FilterWheel"]
-                        ]
-                        pos = device.get("Position")
-                        names = device.get("Names")
-                        hdr[row["header"]] = (names[pos], row["comment"])
-                    case "XPIXSZ":
-                        device = self.devices["Camera"][paired_devices["Camera"]]
-                        binx = device.get("BinX")
-                        xpixsize = device.get("PixelSizeX")
-                        hdr[row["header"]] = (binx * xpixsize, row["comment"])
-                    case "YPIXSZ":
-                        device = self.devices["Camera"][paired_devices["Camera"]]
-                        biny = device.get("BinY")
-                        ypixsize = device.get("PixelSizeY")
-                        hdr[row["header"]] = (biny * ypixsize, row["comment"])
-                    case "APTAREA":
-                        device = self.devices["Telescope"][paired_devices["Telescope"]]
-                        val = device.get("ApertureArea") * 1e6
-                        hdr[row["header"]] = (val, row["comment"])
-                    case "APTDIA":
-                        device = self.devices["Telescope"][paired_devices["Telescope"]]
-                        val = device.get("ApertureDiameter") * 1e3
-                        hdr[row["header"]] = (val, row["comment"])
-                    case "FOCALLEN":
-                        device = self.devices["Telescope"][paired_devices["Telescope"]]
-                        val = device.get("FocalLength") * 1e3
-                        hdr[row["header"]] = (val, row["comment"])
-                    case "OBJECT":
-                        if row["header"].lower() in action_value:
-                            hdr[row["header"]] = (
-                                action_value[row["header"].lower()],
-                                row["comment"],
-                            )
-                    case "EXPTIME" | "IMAGETYP":
-                        hdr[row["header"]] = (None, row["comment"])
-                    case "ASTRA":
-                        hdr[row["header"]] = (ASTRA_VER, row["comment"])
-                    case _:
-                        self.__log("warning", f"Unknown header: {row['header']}")
+                if row["header"] == "FILTER":
+                    device = self.devices["FilterWheel"][paired_devices["FilterWheel"]]
+                    pos = device.get("Position")
+                    names = device.get("Names")
+                    hdr[row["header"]] = (names[pos], row["comment"])
+                elif row["header"] == "XPIXSZ":
+                    device = self.devices["Camera"][paired_devices["Camera"]]
+                    binx = device.get("BinX")
+                    xpixsize = device.get("PixelSizeX")
+                    hdr[row["header"]] = (binx * xpixsize, row["comment"])
+                elif row["header"] == "YPIXSZ":
+                    device = self.devices["Camera"][paired_devices["Camera"]]
+                    biny = device.get("BinY")
+                    ypixsize = device.get("PixelSizeY")
+                    hdr[row["header"]] = (biny * ypixsize, row["comment"])
+                elif row["header"] == "APTAREA":
+                    device = self.devices["Telescope"][paired_devices["Telescope"]]
+                    val = device.get("ApertureArea") * 1e6
+                    hdr[row["header"]] = (val, row["comment"])
+                elif row["header"] == "APTDIA":
+                    device = self.devices["Telescope"][paired_devices["Telescope"]]
+                    val = device.get("ApertureDiameter") * 1e3
+                    hdr[row["header"]] = (val, row["comment"])
+                elif row["header"] == "FOCALLEN":
+                    device = self.devices["Telescope"][paired_devices["Telescope"]]
+                    val = device.get("FocalLength") * 1e3
+                    hdr[row["header"]] = (val, row["comment"])
+                elif row["header"] == "OBJECT":
+                    if row["header"].lower() in action_value:
+                        hdr[row["header"]] = (
+                            action_value[row["header"].lower()],
+                            row["comment"],
+                        )
+                elif row["header"] in ["EXPTIME", "IMAGETYP"]:
+                    hdr[row["header"]] = (None, row["comment"])
+                elif row["header"] == "ASTRA":
+                    hdr[row["header"]] = (ASTRA_VER, row["comment"])
+                else:
+                    self.__log("warning", f"Unknown header: {row['header']}")
 
             elif (
                 row["device_type"]
@@ -3158,30 +3150,29 @@ class Astra:
             elif row["device_type"] == "astra_fixed":
                 # fixed headers, ensure datatype
                 try:
-                    match row["dtype"]:
-                        case "float":
-                            hdr[row["header"]] = (
-                                float(row["device_command"]),
-                                row["comment"],
-                            )
-                        case "int":
-                            hdr[row["header"]] = (
-                                int(row["device_command"]),
-                                row["comment"],
-                            )
-                        case "str":
-                            hdr[row["header"]] = (
-                                str(row["device_command"]),
-                                row["comment"],
-                            )
-                        case "bool":
-                            hdr[row["header"]] = (
-                                bool(row["device_command"]),
-                                row["comment"],
-                            )
-                        case _:
-                            hdr[row["header"]] = (row["device_command"], row["comment"])
-                            self.__log("error", f"Unknown data type: {row['dtype']}")
+                    if row["dtype"] == "float":
+                        hdr[row["header"]] = (
+                            float(row["device_command"]),
+                            row["comment"],
+                        )
+                    elif row["dtype"] == "int":
+                        hdr[row["header"]] = (
+                            int(row["device_command"]),
+                            row["comment"],
+                        )
+                    elif row["dtype"] == "str":
+                        hdr[row["header"]] = (
+                            str(row["device_command"]),
+                            row["comment"],
+                        )
+                    elif row["dtype"] == "bool":
+                        hdr[row["header"]] = (
+                            bool(row["device_command"]),
+                            row["comment"],
+                        )
+                    else:
+                        hdr[row["header"]] = (row["device_command"], row["comment"])
+                        self.__log("error", f"Unknown data type: {row['dtype']}")
                 except ValueError:
                     self.error_source.append(
                         {
