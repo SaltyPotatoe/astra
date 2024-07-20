@@ -292,7 +292,7 @@ def normalize_and_check_actions(actions_list: list) -> list:
         return True, "Schedule is valid"
 
 
-def read_schedule(filename, observatory_name=None, truncate=False) -> pd.DataFrame:
+def process_schedule(filename, observatory_name=None, truncate=False) -> pd.DataFrame:
     """Read a schedule file and return a DataFrame. The schedule file can be in
     CSV or YAML format. The yaml file directly exposes the actions as a list of
     dictionaries. If a CSV is provided, the actions are read as a DataFrame and
@@ -332,8 +332,6 @@ def read_schedule(filename, observatory_name=None, truncate=False) -> pd.DataFra
     if schedule_path.exists() is False:
         raise FileNotFoundError(f"File not found: {filename}")
 
-
-
     # 1. read schedule and convert to a DataFrame
     if schedule_path.suffix == ".csv":
         schedule = pd.read_csv(schedule_path)
@@ -371,3 +369,30 @@ def read_schedule(filename, observatory_name=None, truncate=False) -> pd.DataFra
     schedule["completed"] = False
 
     return schedule
+
+
+# def discover_schedule(self) -> None:
+#     """
+#     Discover the schedule files available
+#     """
+
+#     schedule_files_csv = list(CONFIG.folder_schedule.glob(f"{self.name}.csv"))
+#     schedule_files_yaml = list(CONFIG.folder_schedule.glob(f"{self.name}.y*ml"))
+
+#     if len(schedule_files_csv) > 0 and len(schedule_files_yaml) > 0:
+#         raise ValueError(
+#             f"Only one of {self.name}.csv or {self.name}.y*ml is expected in {CONFIG.folder_schedule}"
+#         )
+
+#     elif len(schedule_files_csv) == 0 and len(schedule_files_yaml) == 0:
+#         raise FileNotFoundError(
+#             f"No schedule files found in {CONFIG.folder_schedule}"
+#         )
+
+#     elif len(schedule_files_csv) > 0:
+#         self.schedule_path = schedule_files_csv[0]
+#     else:
+#         self.schedule_path = schedule_files_yaml[0]
+
+#     self.schedule_mtime = self.get_schedule_mtime()
+#     self.logger.info(f"Schedule file found: {self.schedule_path}")

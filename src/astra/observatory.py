@@ -23,11 +23,25 @@ from sqlite3worker import Sqlite3Worker
 from astra import CONFIG, utils
 from astra.alpaca_device_process import AlpacaDevice
 from astra.guiding import Guider
+from astra.image_handler import save_image
 from astra.logging_handler import LoggingHandler
-from astra.schedule import read_schedule
+from astra.schedule import process_schedule
 
 SQL3WLOGGER = logging.getLogger("sqlite3worker")
 SQL3WLOGGER.setLevel(logging.INFO)
+
+# TODO (set 2024-07-20):
+# - move schedule things to schedule.py
+# - optimise image ack < -- save sequence
+# - organise order of methods
+# - bugs
+# - internal safety monitor
+# - add more logging
+# - add more error handling
+# - add more comments
+# - add more docstrings
+# - add more tests
+# - add more type hints
 
 
 class Observatory:
@@ -43,31 +57,10 @@ class Observatory:
 
         Parameters:
             config_filename (str): path to the configuration file for the observatory.
-            debug (bool): if True, Astra runs in debug mode.
             truncate_schedule (bool): if True, the schedule is truncated by a factor of 100 and moved to the current time.
 
         Attributes:
-            debug (bool): whether Astra is running in debug mode.
-            truncate_schedule (bool): whether the schedule is truncated to the current time.
-            heartbeat (dict): dictionary containing the heartbeat data of the astra process.
-            threads (list): list of threads started by Astra.
-            queue (Queue): a multiprocessing queue used to communicate between processes.
-            queue_running (bool): whether the queue is running.
-            cursor (Cursor): a cursor object used to execute SQL statements on the database.
-            error_free (bool): whether Astra is error-free.
-            error_source (list): list of error sources.
-            weather_safe (None): whether the weather is safe for observing.
-            watchdog_running (bool): whether the watchdog thread is running.
-            schedule_running (bool): whether the schedule thread is running.
-            interrupt (bool): whether Astra is interrupted.
-            observatory (dict): dictionary containing the configuration of the observatory.
-            observatory_name (str): name of the observatory.
-            schedule_mtime (float): modification time of the schedule file.
-            schedule (DataFrame): pandas DataFrame containing the schedule.
-            fits_config (DataFrame): pandas DataFrame containing the FITS headers configuration.
-            devices (dict): dictionary containing the devices used by Astra.
-            last_image (None): last image taken by Astra.
-            guider (dict): dictionary containing the guider objects for each telescope.
+
         """
 
         # set observatory name
@@ -78,10 +71,6 @@ class Observatory:
 
         # set up logger
         self.logger = logging.getLogger(self.name)
-        if debug:
-            self.logger.setLevel(logging.DEBUG)
-        else:
-            self.logger.setLevel(logging.INFO)
         self.logger.addHandler(LoggingHandler(self))
         # self.logger.propagate = False # prevent double logging?
 
@@ -89,11 +78,11 @@ class Observatory:
         self.logger.info("Astra starting up")
 
         # warn if debug mode
-        if debug is True:
+        if self.logger.getEffectiveLevel() == logging.DEBUG:
             self.logger.warning("Astra is running in debug mode")
 
         # read observatory config files
-        self.config = self.read_yaml(config_filename)
+        self.config = self.read_config(config_filename)
         self.fits_config = pd.read_csv(
             CONFIG.folder_observatory / f"{self.name}_fits_headers.csv"
         )
@@ -117,7 +106,6 @@ class Observatory:
 
         # custom logic flags
         self.speculoos = speculoos
-        self.debug = debug  # TODO: remove?
         self.truncate_schedule = truncate_schedule
 
         # log+polling backup flags
@@ -260,7 +248,7 @@ class Observatory:
             )
             self.logger.error(f"Error backing up database: {str(e)}")
 
-    def read_yaml(self, yaml_filename: str) -> dict:
+    def read_config(self, yaml_filename: str) -> dict:
         """
         Reads a YAML configuration file and returns a dictionary containing its contents.
 
@@ -295,6 +283,8 @@ class Observatory:
 
         self.logger.info("Loading devices")
 
+        debug = self.logger.getEffectiveLevel() == logging.DEBUG
+
         devices = {}
         for device_type in self.config:
             devices[device_type] = {}
@@ -307,7 +297,7 @@ class Observatory:
                             d["device_number"],
                             d["device_name"],
                             self.queue,
-                            self.debug,
+                            debug,
                         )
 
                         devices[device_type][d["device_name"]].start()
@@ -1119,202 +1109,6 @@ class Observatory:
             # SPECULOOS EDIT
             self.resume_polls(["Dome", "Telescope", "Focuser"])
 
-    def start_toggle_interrupt(self) -> None:
-        """
-        Starts a new thread to handle user interrupt.
-
-        This function starts a new thread to handle user interrupt by toggling the interrupt flag and stopping various observatory actions.
-        """
-
-        if self.interrupt is True:
-            self.logger.warning("Observatory already interrupted")
-            return
-
-        th = Thread(target=self.toggle_interrupt, daemon=True)
-        th.start()
-
-        self.threads.append(
-            {
-                "type": "toggle_interrupt",
-                "device_name": "all_devices",
-                "thread": th,
-                "id": "toggle_interrupt",
-            }
-        )
-
-    def toggle_interrupt(self) -> None:
-        """
-        Handle user interrupt by toggling the interrupt flag and stopping various observatory actions.
-
-        This function handles user interruptions by setting the interrupt flag to True, which signals the observatory
-        to stop ongoing actions. It stops the watchdog, schedule, and performs the following actions depending on the
-        observatory components:
-
-        - Telescope: Abort slewing, stop tracking, and stop guiding.
-        - Dome: Abort slewing.
-        - Camera: Stop exposure.
-
-        """
-
-        self.interrupt = True
-
-        self.logger.warning("Observatory interrupted")
-
-        # stop watchdog
-        self.watchdog_running = False
-
-        # stop schedule
-        self.schedule_running = False
-
-        ## abort all actions
-        if "Telescope" in self.config:
-            # stop telescope slewing
-            th = Thread(
-                target=self.monitor_action,
-                args=(
-                    "Telescope",
-                    "Slewing",
-                    False,
-                    "AbortSlew",
-                ),
-                daemon=True,
-            )
-            th.start()
-
-            self.threads.append(
-                {
-                    "type": "AbortSlew",
-                    "device_name": "all_telescopes",
-                    "thread": th,
-                    "id": "stop_slewing",
-                }
-            )
-
-            # stop telescope tracking
-            th = Thread(
-                target=self.monitor_action,
-                args=(
-                    "Telescope",
-                    "Tracking",
-                    False,
-                    "Tracking",
-                ),
-                daemon=True,
-            )
-            th.start()
-
-            self.threads.append(
-                {
-                    "type": "Tracking",
-                    "device_name": "all_telescopes",
-                    "thread": th,
-                    "id": "stop_tracking",
-                }
-            )
-
-            # stop guiding
-            for d in self.devices["Telescope"]:
-                self.guider[d].running = False
-                try:
-                    self.guider[d].running = False
-                except Exception as e:
-                    self.error_source.append(
-                        {"device_type": "Guider", "device_name": d, "error": str(e)}
-                    )
-                    self.logger.error(f"Error stopping telescope {d} guiding: {str(e)}")
-                    continue
-
-        if "Dome" in self.config:
-            # stop dome slewing
-            th = Thread(
-                target=self.monitor_action,
-                args=(
-                    "Dome",
-                    "Slewing",
-                    False,
-                    "AbortSlew",
-                ),
-                daemon=True,
-            )
-            th.start()
-
-            self.threads.append(
-                {
-                    "type": "AbortSlew",
-                    "device_name": "all_domes",
-                    "thread": th,
-                    "id": "stop_dome_slewing",
-                }
-            )
-
-        if "Camera" in self.config:
-            # stop camera exposure -- sometimes misses if camera is idle already between exposures
-            th = Thread(
-                target=self.monitor_action,
-                args=(
-                    "Camera",
-                    "CameraState",
-                    0,
-                    "AbortExposure",
-                ),
-                daemon=True,
-            )
-            th.start()
-
-            self.threads.append(
-                {
-                    "type": "AbortExposure",
-                    "device_name": "all_cameras",
-                    "thread": th,
-                    "id": "stop_camera",
-                }
-            )
-
-        # wait for all threads to finish
-        for t in self.threads:
-            if t["thread"].is_alive() is True:
-                if t["id"] in [
-                    "stop_slewing",
-                    "stop_tracking",
-                    "stop_dome_slewing",
-                    "stop_camera",
-                ]:
-                    time.sleep(1)
-
-        self.threads = [i for i in self.threads if i["thread"].is_alive()]
-
-        time.sleep(5)  # time for interrupt to be caught by other threads
-        # TODO: loop or join through threads and check if they have stopped --> timeout
-
-        # reset interrupt
-        self.interrupt = False
-
-    def discover_schedule(self) -> None:
-        """
-        Discover the schedule files available
-        """
-
-        schedule_files_csv = list(CONFIG.folder_schedule.glob(f"{self.name}.csv"))
-        schedule_files_yaml = list(CONFIG.folder_schedule.glob(f"{self.name}.y*ml"))
-
-        if len(schedule_files_csv) > 0 and len(schedule_files_yaml) > 0:
-            raise ValueError(
-                f"Only one of {self.name}.csv or {self.name}.y*ml is expected in {CONFIG.folder_schedule}"
-            )
-
-        elif len(schedule_files_csv) == 0 and len(schedule_files_yaml) == 0:
-            raise FileNotFoundError(
-                f"No schedule files found in {CONFIG.folder_schedule}"
-            )
-
-        elif len(schedule_files_csv) > 0:
-            self.schedule_path = schedule_files_csv[0]
-        else:
-            self.schedule_path = schedule_files_yaml[0]
-
-        self.schedule_mtime = self.get_schedule_mtime()
-        self.logger.info(f"Schedule file found: {self.schedule_path}")
-
     def read_schedule(self) -> pd.DataFrame:
         """
         Read the schedule CSV file and return it as a pandas DataFrame.
@@ -1338,7 +1132,7 @@ class Observatory:
             if (schedule_mtime > self.schedule_mtime) or (self.schedule is None):
                 if self.schedule_running is True:
                     self.logger.warning(
-                        f"Schedule updating while the previous schedule is running. This will not take effect until the new schedule is run."
+                        "Schedule updating while the previous schedule is running. This will not take effect until the new schedule is run."
                     )
 
                 self.logger.info("Reading schedule")
@@ -1348,7 +1142,7 @@ class Observatory:
                     self.logger.warning(f"Not schedule found at {self.schedule_path}")
 
                 else:
-                    return read_schedule(self.schedule_path)
+                    return process_schedule(self.schedule_path)
             else:
                 return self.schedule
 
@@ -1362,6 +1156,19 @@ class Observatory:
             )
             self.logger.error(f"Error reading schedule: {e}")
             raise
+
+    def get_schedule_mtime(self) -> float:
+        """
+        Get the timestamp of the schedule file. If the file does not exist, return 0.
+
+        Returns:
+            float: The timestamp of the schedule file.
+
+        """
+        if not self.schedule_path.exists():
+            return 0
+        else:
+            return os.path.getmtime(self.schedule_path)
 
     def start_schedule(self) -> None:
         """
@@ -1397,19 +1204,6 @@ class Observatory:
                 "id": "schedule",
             }
         )
-
-    def get_schedule_mtime(self) -> float:
-        """
-        Get the timestamp of the schedule file. If the file does not exist, return 0.
-
-        Returns:
-            float: The timestamp of the schedule file.
-
-        """
-        if not self.schedule_path.exists():
-            return 0
-        else:
-            return os.path.getmtime(self.schedule_path)
 
     def run_schedule(self) -> None:
         """
@@ -1543,10 +1337,10 @@ class Observatory:
                 return
 
             if "object" == row["action_type"]:
-                self.object_sequence(row, paired_devices)
+                self.image_sequence(row, paired_devices)
 
             elif "calibration" == row["action_type"]:
-                self.calibration_sequence(row, paired_devices)
+                self.image_sequence(row, paired_devices)
 
             elif "flats" == row["action_type"]:
                 self.flats_sequence(row, paired_devices)
@@ -1820,12 +1614,27 @@ class Observatory:
         time.sleep(1)
 
     def check_conditions(self, row: dict = None) -> bool:
+        """
+        Check the conditions for running a sequence or action.
+
+        This method checks the conditions required to run a sequence or action, including weather safety,
+        error-free operation, no interruptions, and running schedule and watchdog processes.
+
+        Parameters:
+            row (dict, optional): A dictionary containing information about the sequence or action.
+
+        Returns:
+            bool: True if all conditions are met, False otherwise.
+
+        """
+
         base_conditions = (
             self.error_free
             and not self.interrupt
             and self.schedule_running
             and self.watchdog_running
         )
+
         if row is None:
             return base_conditions and self.weather_safe
 
@@ -1842,11 +1651,13 @@ class Observatory:
         self,
         camera,
         exptime,
+        maxadu,
         row,
         hdr,
+        folder,
         use_light=True,
         log_option=None,
-        maximal_sleep_time=0.01,
+        maximal_sleep_time=0.1,
     ) -> bool:
         """
         Perform camera exposure, log information, and wait for the image to be ready.
@@ -1877,6 +1688,20 @@ class Observatory:
         # Yield to other threads
         time.sleep(0)
 
+        # fill header parameters
+        hdr["EXPTIME"] = exptime
+
+        if row["action_type"] == "calibration":
+            if exptime == 0:
+                hdr["IMAGETYP"] = "Bias Frame"
+            else:
+                hdr["IMAGETYP"] = "Dark Frame"
+
+            use_light = False
+
+        elif row["action_type"] == "object":
+            hdr["IMAGETYP"] = "Light Frame"
+
         # Log information about the exposure
         log_option_tmp = "" if log_option is None else f"{log_option} "
         self.logger.info(
@@ -1888,419 +1713,259 @@ class Observatory:
 
         # Wait for the image to be ready
         exposure_successful = True
+        exposure_start_time = time.time()
+        exposure_end_time = time.time()
+
         while not camera.get("ImageReady"):
+
             if not self.check_conditions(row):
                 exposure_successful = False
                 break
+
+            if (exposure_end_time - exposure_start_time) > 3 * exptime + 60:
+                self.logger.error(
+                    f"Exposure timed out after 3*{exptime} + 60 seconds for {row['device_name']}."
+                )
+                self.error_source.append(
+                    {
+                        "device_type": "Camera",
+                        "device_name": row["device_name"],
+                        "error": f"Exposure timed out after 3*{exptime} + 60 seconds",
+                    }
+                )
+                exposure_successful = False
+
             time.sleep(min(maximal_sleep_time, exptime / 10))
+            exposure_end_time = time.time()
 
         if not exposure_successful:
-            self.logger.warning(
-                "Exposure was unsuccessful, as check_conditions() returned False."
-            )
+            self.logger.warning("Last exposure was not completed successfully.")
+            filepath = None
+            # TODO: if error_free is True, abort exposure
+            # if self.error_free:
+            #     camera.get("AbortExposure")()  # check
         else:
-            self.logger.debug(f"Image ready from {row['device_name']} to download.")
+            # get last exposure information
+            last_exposure_start_time = camera.get("LastExposureStartTime")
+            dateobs = pd.to_datetime(last_exposure_start_time)
 
-        return exposure_successful
+            # get image array and info
+            image_array = camera.get("ImageArray")
+            imginfo = camera.get("ImageArrayInfo")
 
-    def get_last_exposure_start_time(self, camera, device_name):
-        # get last exposure start time
-        last_exposure_start_time = camera.get("LastExposureStartTime")
-        self.logger.debug(
-            f"LastExposureStartTime from {device_name} was {last_exposure_start_time}"
-        )
-        dateobs = pd.to_datetime(last_exposure_start_time)
-        return dateobs
+            # save image
+            filepath = save_image(
+                image_array, imginfo, maxadu, hdr, camera.device_name, dateobs, folder
+            )
 
-    def calibration_sequence_alternative(self, row: dict, paired_devices: dict) -> None:
+            self.logger.info(f"Image saved as {os.path.basename(filepath)}")
+            self.logger.info(
+                f"Image acquired in {time.time() - exposure_end_time} s from when ImageReady was read True"
+            )
+            self.logger.info(
+                f"Image acquired in {time.time() - exposure_start_time} s from when StartExposure was called"
+            )
+
+            self.last_image = filepath
+
+            ## add to database
+            dt = dateobs.strftime("%Y-%m-%d %H:%M:%S.%f")
+            self.cursor.execute(
+                f"INSERT INTO images VALUES ('{filepath}', '{camera.device_name}', '{0}', '{dt}')"
+            )
+
+        return exposure_successful, filepath
+
+    def image_sequence(self, row: dict, paired_devices: dict) -> None:
         """
-        Run a bias/dark calibration sequence for a specific camera.
-
-        This function performs a calibration sequence for a camera, capturing bias and dark frames.
-        It operates based on the provided parameters and camera settings.
-
-        Parameters:
-            row (dict): A dictionary containing information about the camera and calibration settings.
-                - 'device_name' (str): The name of the camera device.
-                - 'start_time' (datetime): The start time for the calibration sequence.
-                - 'end_time' (datetime): The end time for the calibration sequence.
-                - 'device_type' (str): The type of the camera device.
-
-            paired_devices (dict): A dictionary of paired devices used in the calibration sequence.
-
-        Notes:
-            - The function logs information about the calibration sequence's progress.
-            - It captures bias and dark frames for different exposure times as specified in 'action_value'.
-            - The sequence will continue to run until one of the following conditions is met:
-                - The current time exceeds 'end_time'.
-                - An error occurs during execution.
-                - The sequence is manually interrupted.
-                - The schedule is stopped.
-                - The watchdog process is terminated.
+        Run an image sequence for a specific camera.
         """
+
         self.logger.info(
-            f"Running calibration sequence for {row['device_name']}, starting {row['start_time']} and ending {row['end_time']}"
+            f"Running {row['action_type']} sequence for {row['device_name']}, "
+            f"starting {row['start_time']} and ending {row['end_time']}"
         )
 
         action_value, folder, hdr = self.pre_sequence(row, paired_devices)
 
         camera = self.devices[row["device_type"]][row["device_name"]]
-
         maxadu = camera.get("MaxADU")
 
-        for i, exptime in enumerate(action_value["exptime"]):
-            if not self.check_conditions(row):
-                break
-
-            hdr["EXPTIME"] = exptime
-            if exptime == 0:
-                hdr["IMAGETYP"] = "Bias Frame"
+        if row["action_type"] == "calibration":
+            exptime_list = action_value["exptime"]
+            n_exposures_list = action_value["n"]
+        else:
+            exptime_list = [action_value["exptime"]]
+            if "n" in action_value:
+                n_exposures_list = [action_value["n"]]
             else:
-                hdr["IMAGETYP"] = "Dark Frame"
-
-            number_of_expsosures = action_value["n"][i]
-
-            for exposure in range(number_of_expsosures):
-                log_option = f"{exposure + 1}/{number_of_expsosures}"
-                if not self.perform_exposure(
-                    camera,
-                    exptime,
-                    row,
-                    hdr,
-                    use_light=False,
-                    maximal_sleep_time=0.01,
-                    log_option=log_option,
-                ):
-                    self.logger.warning(
-                        f"Exposure loop broke at exposure {log_option} with an exposure time of {exptime} s for {row['device_name']}."
-                    )
-                    break
-
-                t0 = datetime.now(UTC)
-                dateobs = self.get_last_exposure_start_time(camera, row["device_name"])
-
-                # save image
-                self.logger.debug(f"Saving image from {row['device_name']}")
-                self.save_image(camera, hdr, dateobs, t0, maxadu, folder)
-
-        self.logger.info(
-            f"Calibration sequence ended for {row['device_name']}, "
-            f"starting {row['start_time']} and ending {row['end_time']}",
-        )
-
-    def calibration_sequence(self, row: dict, paired_devices: dict) -> None:
-        """
-        Run a bias/dark calibration sequence for a specific camera.
-
-        This function performs a calibration sequence for a camera, capturing bias and dark frames.
-        It operates based on the provided parameters and camera settings.
-
-        Parameters:
-            row (dict): A dictionary containing information about the camera and calibration settings.
-
-                - 'device_name' (str): The name of the camera device.
-                - 'start_time' (datetime): The start time for the calibration sequence.
-                - 'end_time' (datetime): The end time for the calibration sequence.
-                - 'device_type' (str): The type of the camera device.
-
-            paired_devices (dict): A dictionary of paired devices used in the calibration sequence.
-
-        Notes:
-            - The function logs information about the calibration sequence's progress.
-            - It captures bias and dark frames for different exposure times as specified in 'action_value'.
-            - The sequence will continue to run until one of the following conditions is met:
-                - The current time exceeds 'end_time'.
-                - An error occurs during execution.
-                - The sequence is manually interrupted.
-                - The schedule is stopped.
-                - The watchdog process is terminated.
-        """
-
-        self.logger.info(
-            f"Running calibration sequence for {row['device_name']}, starting {row['start_time']} and ending {row['end_time']}"
-        )
-
-        action_value, folder, hdr = self.pre_sequence(row, paired_devices)
-
-        camera = self.devices[row["device_type"]][row["device_name"]]
-
-        maxadu = camera.get("MaxADU")
-
-        for i, exptime in enumerate(action_value["exptime"]):
-            count = 0
-            if self.check_conditions(row):
-                hdr["EXPTIME"] = exptime
-
-                if exptime == 0:
-                    hdr["IMAGETYP"] = "Bias Frame"
-                else:
-                    hdr["IMAGETYP"] = "Dark Frame"
-
-                self.logger.info(
-                    f"Exposing {count + 1}/{action_value['n'][i]} {row['device_name']} {hdr['IMAGETYP']} for exposure time {hdr['EXPTIME']} s"
-                )
-                camera.get("StartExposure", Duration=exptime, Light=False)
-
-                while (count < action_value["n"][i]) and self.check_conditions(row):
-                    r = camera.get("ImageReady")
-                    time.sleep(
-                        0.1
-                    )  # add 0.1 s sleep to avoid spamming the camera and high cpu usage
-                    time.sleep(0)  # yield to other threads
-                    if r is True:
-                        self.logger.debug(
-                            f"Image ready from {row['device_name']} to download."
-                        )
-
-                        t0 = datetime.now(UTC)
-
-                        # get last exposure start time
-                        r = camera.get("LastExposureStartTime")
-                        self.logger.debug(
-                            f"LastExposureStartTime from {row['device_name']} was {r}"
-                        )
-                        dateobs = pd.to_datetime(r)
-
-                        # save image
-                        self.logger.debug(f"Saving image from {row['device_name']}")
-                        self.save_image(camera, hdr, dateobs, t0, maxadu, folder)
-
-                        count += 1
-
-                        if count < action_value["n"][i]:
-                            # start next exposure
-                            self.logger.info(
-                                f"Exposing {count + 1}/{action_value['n'][i]} {row['device_name']} {hdr['IMAGETYP']} for exposure time {hdr['EXPTIME']} s"
-                            )
-                            camera.get("StartExposure", Duration=exptime, Light=False)
-
-        self.logger.info(
-            f"Calibration sequence ended for {row['device_name']}, starting {row['start_time']} and ending {row['end_time']}"
-        )
-
-    def object_sequence(self, row: dict, paired_devices: dict) -> None:
-        """
-        Run an object sequence for a specified device.
-
-        This method executes a sequence of actions for a given device, such as capturing images, pointing correction,
-        and guiding if necessary, within a specified time frame and under specific conditions.
-
-        Parameters:
-            row (dict): A dictionary containing information about the sequence and the device, including 'action_value', 'device_name', 'start_time', and 'end_time'.
-            paired_devices (dict): A dictionary specifying paired devices, such as a Telescope for guiding.
-
-        Notes:
-            - The 'row' dictionary should have the following keys:
-                - 'action_value' (str): A JSON-encoded string containing configuration values for the sequence.
-                - 'device_name' (str): The name of the device on which the sequence is to be executed.
-                - 'start_time' (datetime): The start time for the sequence.
-                - 'end_time' (datetime): The end time for the sequence.
-            - The method will perform actions like capturing images, pointing correction, and guiding based on the 'action_value'.
-            - The sequence will continue to run until one of the following conditions is met:
-                - The current time exceeds 'end_time'.
-                - Adverse weather conditions are detected.
-                - An error occurs during execution.
-                - The sequence is manually interrupted.
-                - The schedule is stopped.
-                - The watchdog process is terminated.
-        """
-
-        self.logger.info(
-            f"Running object sequence for {eval(row['action_value'])['object']} with {row['device_name']}, starting {row['start_time']} and ending {row['end_time']}"
-        )
-
-        action_value, folder, hdr = self.pre_sequence(row, paired_devices)
-
-        hdr["EXPTIME"] = action_value["exptime"]
-
-        camera = self.devices[row["device_type"]][row["device_name"]]
-
-        maxadu = camera.get("MaxADU")
-
-        self.logger.info(
-            f"Exposing {row['device_name']} {hdr['IMAGETYP']} for exposure time {hdr['EXPTIME']} s"
-        )
-        camera.get("StartExposure", Duration=action_value["exptime"], Light=True)
+                n_exposures_list = [1e6]  # hacky
 
         pointing_complete = False
         pointing_attempts = 0
         guiding = False
 
-        while self.check_conditions(row):
-            r = camera.get("ImageReady")
-            time.sleep(
-                0.1
-            )  # add 0.1 s sleep to avoid spamming the camera and high cpu usage
-            time.sleep(0)  # yield to other threads
-            if r is True:
-                self.logger.debug(f"Image ready from {row['device_name']} to download.")
+        for i, exptime in enumerate(exptime_list):
 
-                t0 = datetime.now(UTC)
+            if not self.check_conditions(row):
+                break
 
-                # get last exposure start time
-                r = camera.get("LastExposureStartTime")
-                self.logger.debug(
-                    f"LastExposureStartTime from {row['device_name']} was {r}"
+            n_exposures = n_exposures_list[i]
+
+            for exposure in range(n_exposures):
+
+                if "n" in action_value:
+                    log_option = f"{exposure + 1}/{n_exposures}"
+                else:
+                    log_option = None
+
+                success, filepath = self.perform_exposure(
+                    camera,
+                    exptime,
+                    maxadu,
+                    row,
+                    hdr,
+                    folder,
+                    log_option=log_option,
                 )
-                dateobs = pd.to_datetime(r)
 
-                # save image
-                self.logger.debug(f"Saving image from {row['device_name']}")
-                filepath = self.save_image(camera, hdr, dateobs, t0, maxadu, folder)
+                if not success:
+                    break
 
                 # pointing correction if not already done
-                if "pointing" in action_value and pointing_complete is False:
-                    if action_value["pointing"] is True:
-                        self.logger.info(
-                            f"Running pointing correction for {action_value['object']} with {row['device_name']}"
+                if action_value.get("pointing") and pointing_complete is False:
+                    pointing_complete = self.pointing_correction(
+                        row, action_value, filepath, paired_devices
+                    )
+
+                    pointing_attempts += 1
+
+                    if pointing_attempts > 3 and pointing_complete is False:
+                        self.logger.warning(
+                            f"Pointing correction for {action_value['object']} with "
+                            f"{row['device_name']} failed after {pointing_attempts} attempts"
                         )
-
-                        try:
-                            (
-                                offset_ra,
-                                offset_dec,
-                                wcs,
-                                angular_separation,
-                            ) = utils.point_correction(
-                                filepath, action_value["ra"], action_value["dec"]
-                            )
-                            # hdr += wcs.to_header()
-                            print(
-                                wcs.to_header(),
-                                angular_separation,
-                                offset_ra,
-                                offset_dec,
-                            )
-                        except Exception as e:
-                            self.logger.warning(
-                                f"Error running pointing correction for {action_value['object']} with {row['device_name']}: {str(e)}"
-                            )
-                            pointing_complete = True
-
-                        if pointing_complete is False:
-                            tel_index = [
-                                i
-                                for i, d in enumerate(self.config["Telescope"])
-                                if d["device_name"] == paired_devices["Telescope"]
-                            ][0]
-                            pointing_threshold = (
-                                self.config["Telescope"][tel_index][
-                                    "pointing_threshold"
-                                ]
-                                / 60
-                            )  # convert to degrees
-
-                            if abs(angular_separation.deg) < pointing_threshold:
-                                self.logger.info(
-                                    f"No further pointing correction required. Correction of {angular_separation.deg*60:.2f}' within threshold of {pointing_threshold*60:.2f}'"
-                                )
-                                pointing_complete = True
-                            else:
-                                self.logger.info(
-                                    f"Pointing correction of {angular_separation.deg*60:.2f}' required as it is outside threshold of {pointing_threshold*60:.2f}'"
-                                )
-                                self.logger.info(f"RA shift: {offset_ra}")
-                                self.logger.info(f"DEC shift: {offset_dec}")
-
-                                # sync telescope to corrected coordinates, TODO: check if right +-
-                                telescope = self.devices["Telescope"][
-                                    paired_devices["Telescope"]
-                                ]
-                                telescope.get(
-                                    "SyncToCoordinates",
-                                    RightAscension=24
-                                    * (action_value["ra"] + offset_ra)
-                                    / 360,
-                                    Declination=action_value["dec"] + offset_dec,
-                                )
-
-                                # re-slew to target
-                                self.setup_observatory(paired_devices, action_value)
-
-                            pointing_attempts += 1
-
-                            if pointing_attempts > 3:
-                                self.logger.warning(
-                                    f"Pointing correction for {action_value['object']} with {row['device_name']} failed after {pointing_attempts} attempts"
-                                )
-                                pointing_complete = True
-                    else:
                         pointing_complete = True
+                else:
+                    pointing_complete = True
 
                 # initialise guiding once pointing correction is complete
                 if (
-                    "guiding" in action_value
+                    action_value.get("guiding")
                     and guiding is False
                     and pointing_complete is True
                 ):
-                    if action_value["guiding"] is True:
-                        self.logger.info(
-                            f"Starting guiding for {paired_devices['Telescope']}"
-                        )
-
-                        filter_name = action_value["filter"].replace("'", "")
-                        glob_str = os.path.join(
-                            "..",
-                            "images",
-                            folder,
-                            f"{row['device_name']}_{filter_name}_{action_value['object']}_{action_value['exptime']}_*.fits",
-                        )
-
-                        th = Thread(
-                            target=self.guider[paired_devices["Telescope"]].guider_loop,
-                            args=(
-                                camera.device_name,
-                                glob_str,
-                            ),
-                            daemon=True,
-                        )
-                        th.start()
-
-                        self.threads.append(
-                            {
-                                "type": "guider",
-                                "device_name": row["device_name"],
-                                "thread": th,
-                                "id": "guider",
-                            }
-                        )
-
-                        # TODO: timeout
-                        while self.guider[paired_devices["Telescope"]].running is False:
-                            time.sleep(0.1)
-
-                        guiding = True
-
-                # start next exposure
-                self.logger.debug(f"Exposing {row['device_name']} again")
-                self.logger.info(
-                    f"Exposing {row['device_name']} {hdr['IMAGETYP']} for exposure time {hdr['EXPTIME']} s"
-                )
-                camera.get(
-                    "StartExposure", Duration=action_value["exptime"], Light=True
-                )
+                    guiding = self.start_guider(paired_devices)
 
         # stop guiding at end of sequence
-        if "guiding" in action_value:
-            if action_value["guiding"] is True:
-                self.logger.info(f"Stopping guiding for {paired_devices['Telescope']}")
-                try:
-                    self.guider[paired_devices["Telescope"]].running = False
-                except Exception as e:
-                    self.error_source.append(
-                        {
-                            "device_type": "Guider",
-                            "device_name": paired_devices["Telescope"],
-                            "error": str(e),
-                        }
-                    )
-                    self.logger.error(
-                        f"Error stopping telescope {paired_devices['Telescope']} guiding: {str(e)}"
-                    )
+        if action_value.get("guiding"):
+            self.logger.info(f"Stopping guiding for {paired_devices['Telescope']}")
+            self.guider[paired_devices["Telescope"]].running = False
 
         self.logger.info(
-            f"Object sequence ended {eval(row['action_value'])['object']} with {row['device_name']}, starting {row['start_time']} and ending {row['end_time']}"
+            f"{row['action_type']} sequence ended for {row['device_name']}, "
+            f"starting {row['start_time']} and ending {row['end_time']}",
         )
+
+    def pointing_correction(
+        self, row: dict, action_value: dict, filepath: str, paired_devices: dict
+    ) -> None:
+        """
+        Perform a pointing correction
+        """
+        self.logger.info(
+            f"Running pointing correction for {action_value['object']} with {row['device_name']}"
+        )
+
+        try:
+            offset_ra, offset_dec, wcs, angular_separation = utils.pointing(
+                filepath, action_value["ra"], action_value["dec"]
+            )
+
+        except Exception as e:
+            self.logger.warning(
+                f"Error running pointing correction for {action_value['object']}"
+                f" with {row['device_name']}: {str(e)}"
+            )
+            pointing_complete = True
+            return pointing_complete
+
+        # get telescope index
+        tel_index = [
+            i
+            for i, d in enumerate(self.config["Telescope"])
+            if d["device_name"] == paired_devices["Telescope"]
+        ][0]
+
+        # convert to degrees
+        pointing_threshold = (
+            self.config["Telescope"][tel_index]["pointing_threshold"] / 60
+        )
+
+        if abs(angular_separation.deg) < pointing_threshold:
+            self.logger.info(
+                f"No further pointing correction required. "
+                f"Correction of {angular_separation.deg*60:.2f}' "
+                f"within threshold of {pointing_threshold*60:.2f}'"
+            )
+            pointing_complete = True
+        else:
+            self.logger.info(
+                f"Pointing correction of {angular_separation.deg*60:.2f}' "
+                f"required as it is outside threshold of {pointing_threshold*60:.2f}'"
+            )
+            self.logger.info(f"RA shift: {offset_ra}")
+            self.logger.info(f"DEC shift: {offset_dec}")
+
+            # sync telescope to corrected coordinates
+            telescope = self.devices["Telescope"][paired_devices["Telescope"]]
+            telescope.get(
+                "SyncToCoordinates",
+                RightAscension=24 * (action_value["ra"] + offset_ra) / 360,
+                Declination=action_value["dec"] + offset_dec,
+            )
+
+            # re-slew to target
+            self.setup_observatory(paired_devices, action_value)
+
+            return pointing_complete
+
+    def start_guider(
+        self, row: dict, action_value: dict, folder: str, paired_devices: dict
+    ) -> None:
+        """
+        Start the guider for a telescope.
+        """
+        self.logger.info(f"Starting guiding for {paired_devices['Telescope']}")
+
+        filter_name = action_value["filter"].replace("'", "")
+        glob_str = os.path.join(
+            "..",
+            "images",
+            folder,
+            f"{row['device_name']}_{filter_name}_{action_value['object']}_{action_value['exptime']}_*.fits",
+        )
+
+        th = Thread(
+            target=self.guider[paired_devices["Telescope"]].guider_loop,
+            args=(
+                paired_devices["Camera"],
+                glob_str,
+            ),
+            daemon=True,
+        )
+        th.start()
+
+        self.threads.append(
+            {
+                "type": "guider",
+                "device_name": row["device_name"],
+                "thread": th,
+                "id": "guider",
+            }
+        )
+
+        return True
 
     def flats_sequence(self, row: dict, paired_devices: dict) -> None:
         """
@@ -2796,128 +2461,6 @@ class Observatory:
             time.sleep(1)  # wait for camera to settle
 
             return exptime
-
-    def img_transform(
-        self, device: AlpacaDevice, img: np.array, maxadu: int
-    ) -> np.array:
-        """
-        This function takes in a device object, an image object, and a maximum ADU
-        value and returns a numpy array of the correct shape for astropy.io.fits.
-
-        Parameters:
-            device (AlpacaDevice): A device object that contains the ImageArrayInfo data.
-            img (np.array): An image object that contains the image data.
-            maxadu (int): The maximum ADU value.
-
-        Returns:
-            nda (np.array): A numpy array of the correct shape for astropy.io.fits.
-        """
-
-        imginfo = device.get("ImageArrayInfo")
-
-        # Determine the image data type
-        if imginfo.ImageElementType == 0 or imginfo.ImageElementType == 1:
-            imgDataType = np.uint16
-        elif imginfo.ImageElementType == 2:
-            if maxadu <= 65535:
-                imgDataType = np.uint16  # Required for BZERO & BSCALE to be written
-            else:
-                imgDataType = np.int32
-        elif imginfo.ImageElementType == 3:
-            imgDataType = np.float64
-        else:
-            raise ValueError(f"Unknown ImageElementType: {imginfo.ImageElementType}")
-
-        # Make a numpy array of he correct shape for astropy.io.fits
-        if imginfo.Rank == 2:
-            nda = np.array(img, dtype=imgDataType).transpose()
-        else:
-            nda = np.array(img, dtype=imgDataType).transpose(2, 1, 0)
-
-        return nda
-
-    def save_image(
-        self,
-        device: AlpacaDevice,
-        hdr: fits.Header,
-        dateobs: datetime,
-        t0: datetime,
-        maxadu: int,
-        folder: str,
-    ) -> str:
-        """
-        Save an image to disk.
-
-        This function retrieves an image from an Alpaca device, transforms it, and saves it to disk in FITS format.
-        The filename is generated based on device information and the image's characteristics.
-
-        The FITS header is updated with the 'DATE-OBS' and 'DATE' keywords to record the exposure start time
-        and the time when the file was written.
-
-        After saving the image, it is logged, and its file path is returned.
-
-        Parameters:
-            device (AlpacaDevice): The camera from which to retrieve the image.
-            hdr (fits.Header): The FITS header associated with the image.
-            dateobs (datetime): The UTC date and time of exposure start.
-            t0 (datetime): The starting time of the image acquisition.
-            maxadu (int): The maximum analog-to-digital unit value for the image.
-            folder (str): The folder where the image will be saved.
-
-        Returns:
-            str: The file path to the saved image.
-
-        """
-        self.logger.debug("Getting image array")
-        arr = device.get("ImageArray")
-
-        self.logger.debug("Got image array, now loading to numpy array")
-        img = np.array(arr)
-
-        self.logger.debug("Loaded image array to numpy array, now transforming")
-
-        nda = self.img_transform(device, img, maxadu)  ## TODO: make more efficient?
-        self.logger.debug("Image transformed, now saving to disk")
-
-        hdr["DATE-OBS"] = (
-            dateobs.strftime("%Y-%m-%dT%H:%M:%S.%f"),
-            "UTC date/time of exposure start",
-        )
-
-        date = datetime.now(UTC)
-        hdr["DATE"] = (
-            date.strftime("%Y-%m-%dT%H:%M:%S.%f"),
-            "UTC date/time when this file was written",
-        )
-
-        hdu = fits.PrimaryHDU(nda, header=hdr)
-
-        filter_name = hdr["FILTER"].replace("'", "")
-
-        if hdr["IMAGETYP"] == "Light Frame":
-            filename = f"{device.device_name}_{filter_name}_{hdr['OBJECT']}_{hdr['EXPTIME']}_{date.strftime('%Y%m%d_%H%M%S.%f')[:-3]}.fits"
-        elif hdr["IMAGETYP"] in ["Bias Frame", "Dark Frame"]:
-            filename = f"{device.device_name}_{hdr['IMAGETYP']}_{hdr['EXPTIME']}_{date.strftime('%Y%m%d_%H%M%S.%f')[:-3]}.fits"
-        else:
-            filename = f"{device.device_name}_{filter_name}_{hdr['IMAGETYP']}_{hdr['EXPTIME']}_{date.strftime('%Y%m%d_%H%M%S.%f')[:-3]}.fits"
-
-        filepath = CONFIG.folder_images / folder / filename
-
-        self.logger.debug("Writing to disk")
-        hdu.writeto(filepath)
-        self.logger.debug("Image written to disk")
-
-        self.last_image = filepath
-
-        ## add to database
-        dt = dateobs.strftime("%Y-%m-%d %H:%M:%S.%f")
-        self.cursor.execute(
-            f"INSERT INTO images VALUES ('{filepath}', '{device.device_name}', '{0}', '{dt}')"
-        )
-        self.logger.info(f"Image saved as {os.path.basename(filepath)}")
-        self.logger.info(f"Image acquired in {datetime.now(UTC) - t0}")
-
-        return filepath
 
     def base_header(self, paired_devices: dict, action_value: dict) -> fits.Header:
         """

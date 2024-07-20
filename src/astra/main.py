@@ -3,6 +3,7 @@ import datetime
 import logging
 import os
 import sqlite3
+import time
 from contextlib import asynccontextmanager
 from datetime import UTC
 from glob import glob
@@ -35,25 +36,15 @@ USEFUL_HEADERS = None
 TRUNCATE_SCHEDULE = False
 
 
-# logging.basicConfig(
-#     format="%(levelname)s,%(asctime)s.%(msecs)03d,%(process)d,%(name)s,(%(filename)s:%(lineno)d),%(message)s",
-#     datefmt="%Y-%m-%d %H:%M:%S",
-#     filename=CONFIG.file_log,
-#     level=logging.INFO,
-# )
-# logging.Formatter.converter = time.gmtime
-
-
 def load_observatories():
     global OBSERVATORIES  # not sure if this is necessary
     global WEBCAMFEEDS
     global FWS
-    global DEBUG
 
     config_files = glob(str(CONFIG.folder_observatory / "*.yaml"))
 
     for config_filename in config_files:
-        obs = Observatory(config_filename, DEBUG, TRUNCATE_SCHEDULE, speculoos=True)
+        obs = Observatory(config_filename, TRUNCATE_SCHEDULE, speculoos=True)
         OBSERVATORIES[obs.name] = obs
 
         if "Misc" in obs.config:
@@ -253,15 +244,6 @@ async def start_schedule(observatory: str):
 async def stop_schedule(observatory: str):
     obs = OBSERVATORIES[observatory]
     obs.schedule_running = False
-
-    return {"status": "success", "data": "null", "message": ""}
-
-
-@app.get("/api/interrupt/{observatory}")
-async def interrupt(observatory: str):
-    obs = OBSERVATORIES[observatory]
-
-    obs.start_toggle_interrupt()
 
     return {"status": "success", "data": "null", "message": ""}
 
@@ -868,6 +850,14 @@ if __name__ == "__main__":
         "--truncate", action="store_true", help="run in truncate_schedule mode"
     )
     args = parser.parse_args()
+
+    # logging.basicConfig(
+    #     format="%(levelname)s,%(asctime)s.%(msecs)03d,%(process)d,%(name)s,(%(filename)s:%(lineno)d),%(message)s",
+    #     datefmt="%Y-%m-%d %H:%M:%S",
+    #     filename=CONFIG.file_log,
+    #     level=logging.DEBUG,
+    # )
+    # logging.Formatter.converter = time.gmtime
 
     if args.debug:
         DEBUG = True

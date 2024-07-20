@@ -2,7 +2,7 @@ import math
 import os
 import sqlite3
 import time
-from datetime import datetime, timedelta, UTC
+from datetime import UTC, datetime, timedelta
 from typing import Optional, Tuple, Union
 
 import astropy.units as u
@@ -379,7 +379,7 @@ def gaia_db_query(
     return np.array([table["ra"].values, table["dec"].values]).T
 
 
-def point_correction(filepath, ra, dec):
+def pointing(filepath, ra, dec):
     # open image
     with fits.open(filepath) as hdu:
         header = hdu[0].header
