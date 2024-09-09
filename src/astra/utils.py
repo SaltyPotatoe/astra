@@ -531,7 +531,6 @@ def check_astelos_error(telescope):
     df_list = pd.DataFrame(columns=["error", "detail", "level", "component"])
 
     messages = telescope.get("CommandString", Command="TELESCOPE.STATUS.LIST", Raw=True)
-    print(messages)
     # structure = "<group>|<level>[:<component>|<level>[;<component>...]][:<error>|<detail>|<level>|<component>[;<error>...]][,<group>...]"
 
     for message in messages.split(","):
@@ -584,6 +583,7 @@ def ack_astelos_error(telescope, valid, all_errors, messages):
     """
 
     start_time = time.time()
+    # TODO: add Daniel's code
 
     while valid and len(all_errors) > 0:
         # clear errors

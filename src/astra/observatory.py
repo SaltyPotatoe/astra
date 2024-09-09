@@ -123,13 +123,13 @@ class Observatory:
         # watchdog and schedule running flags
         self.watchdog_running = False
         self.schedule_running = False
-        self.interrupt = False  # TODO: remove?
 
         # schedule paths
         self.schedule_path = CONFIG.folder_schedule / f"{self.name}.csv"
         self.schedule_mtime = self.get_schedule_mtime()
 
         # load devices
+        self.monitor_action_queue = {}
         self.devices = self.load_devices()
         self.last_image = None
 
@@ -301,6 +301,8 @@ class Observatory:
                         )
 
                         devices[device_type][d["device_name"]].start()
+
+                        self.monitor_action_queue[d["device_name"]] = {}
                     except Exception as e:
                         self.error_source.append(
                             {
@@ -477,50 +479,6 @@ class Observatory:
                             f"{device_type} {device_name} could not pause polls: {str(e)}"
                         )
 
-    def unload_all(self) -> None:
-        """
-        This method gracefully shuts down the various components of the system, including the watchdog,
-        schedule, and polling mechanisms. It also disconnects and unloads all devices registered in the system,
-        ensuring a clean shutdown. Finally, it closes the SQLite database.
-
-        """
-
-        self.logger.info("Disconnecting from devices")
-
-        # stop threads
-        if self.watchdog_running is True:
-            self.watchdog_running = False
-
-        if self.schedule_running is True:
-            self.schedule_running = False
-
-        for device_type in self.devices:
-            for device_name in self.devices[device_type]:
-                try:
-                    self.devices[device_type][device_name].stop_poll()
-
-                    self.devices[device_type][device_name].set(
-                        "Connected", False
-                    )  ## slow?
-                    self.logger.info(f"{device_type} {device_name} disconnected")
-
-                    self.devices[device_type][device_name].stop()  ## unloads device?
-                except Exception as e:
-                    self.error_source.append(
-                        {
-                            "device_type": device_type,
-                            "device_name": device_name,
-                            "error": str(e),
-                        }
-                    )
-                    self.logger.error(
-                        f"{device_type} {device_name} not disconnected: {str(e)}"
-                    )
-
-        self.logger.info("Disconnect all sequence complete")
-
-        self.cursor.close()
-
     def start_watchdog(self) -> None:
         """
         Start the watchdog thread if it is not already running.
@@ -638,7 +596,6 @@ class Observatory:
             self.heartbeat["error_source"] = self.error_source
             self.heartbeat["weather_safe"] = self.weather_safe
             self.heartbeat["schedule_running"] = self.schedule_running
-            self.heartbeat["interrupt"] = self.interrupt
             self.heartbeat["cpu_percent"] = psutil.cpu_percent()
             self.heartbeat["memory_percent"] = psutil.virtual_memory().percent
             self.heartbeat["disk_percent"] = psutil.disk_usage("/").percent
@@ -865,7 +822,7 @@ class Observatory:
         self.watchdog_running = False
         self.logger.warning("Watchdog stopped")
 
-    def astelos_check_and_ack_error(self):
+    def speculoos_check_and_ack_error(self):
         if "Telescope" in self.config:
             for telescope_name in self.devices["Telescope"]:
                 telescope = self.devices["Telescope"][telescope_name]
@@ -909,7 +866,7 @@ class Observatory:
                         f"AsTelOS errors invalid for {telescope_name}: {messages}"
                     )
 
-    def open_observatory(self, paired_devices: dict = None) -> None:
+    def open_observatory(self, paired_devices: dict | None = None) -> None:
         """
         Opens the observatory in a controlled sequence: first, it opens the dome shutter if available,
         and then it unparks the telescope if available and weather safe.
@@ -923,11 +880,11 @@ class Observatory:
             # SPECULOOS EDIT
             self.pause_polls(["Dome", "Telescope", "Focuser"])
 
-            # SPECULOOS EDIT  -- TODO: this should return a state before continuing
-            self.astelos_check_and_ack_error()
+            # SPECULOOS EDIT  -- TODO: this should return a state before continuing (is this not satisfied by error_free?)
+            self.speculoos_check_and_ack_error()
 
         if "Dome" in self.config:
-            if self.weather_safe and self.error_free and (self.interrupt is False):
+            if self.weather_safe and self.error_free:
                 # open dome shutter
                 if paired_devices is not None:
                     self.monitor_action(
@@ -939,20 +896,18 @@ class Observatory:
                         log_message=f"Opening Dome shutter of {paired_devices['Dome']}",
                     )
                 else:
-                    self.monitor_action(
-                        "Dome",
-                        "ShutterStatus",
-                        0,
-                        "OpenShutter",
-                        log_message="Opening Dome shutter(s)",
-                    )
-
-                if self.speculoos:
-                    # SPECULOOS EDIT
-                    self.astelos_check_and_ack_error()
+                    for device_name in self.devices['Dome']:
+                        self.monitor_action(
+                            "Dome",
+                            "ShutterStatus",
+                            0,
+                            "OpenShutter",
+                            device_name=device_name,
+                            log_message=f"Opening Dome shutter of {device_name}",
+                        )
 
         if "Telescope" in self.config:
-            if self.weather_safe and self.error_free and (self.interrupt is False):
+            if self.weather_safe and self.error_free:
                 # unpark telescope
                 if paired_devices is not None:
                     self.monitor_action(
@@ -964,22 +919,21 @@ class Observatory:
                         log_message=f"Unparking Telescope {paired_devices['Telescope']}",
                     )
                 else:
-                    self.monitor_action(
-                        "Telescope",
-                        "AtPark",
-                        False,
-                        "Unpark",
-                        log_message="Unparking Telescope(s)",
-                    )
+                    for device_name in self.devices['Telescope']:
+                        self.monitor_action(
+                            "Telescope",
+                            "AtPark",
+                            False,
+                            "Unpark",
+                            device_name=device_name,
+                            log_message=f"Unparking Telescope {device_name}",
+                        )
 
-                if self.speculoos:
-                    # SPECULOOS EDIT
-                    self.astelos_check_and_ack_error()
         if self.speculoos:
             # SPECULOOS EDIT
             self.resume_polls(["Dome", "Telescope", "Focuser"])
 
-    def close_observatory(self, paired_devices: dict = None) -> None:
+    def close_observatory(self, paired_devices: dict | None = None, error_sensitive: bool = True) -> None:
         """
         Close the observatory operations in the following order:
 
@@ -1001,19 +955,16 @@ class Observatory:
             self.pause_polls(["Dome", "Telescope", "Focuser"])
 
         if "Telescope" in self.config:
-            # stop guiding
-            for d in self.devices["Telescope"]:
+            # stop telescope guiding and slewing
+            if paired_devices is not None:
                 try:
-                    self.guider[d].running = False
+                    self.guider[paired_devices["Telescope"]].running = False
                 except Exception as e:
                     self.error_source.append(
-                        {"device_type": "Guider", "device_name": d, "error": str(e)}
+                        {"device_type": "Guider", "device_name": paired_devices["Telescope"], "error": str(e)}
                     )
-                    self.logger.error(f"Error stopping telescope {d} guiding: {str(e)}")
-                    continue
+                    self.logger.error(f"Error stopping telescope {paired_devices["Telescope"]} guiding: {str(e)}")
 
-            # stop telescope slewing
-            if paired_devices is not None:
                 self.monitor_action(
                     "Telescope",
                     "Slewing",
@@ -1021,15 +972,29 @@ class Observatory:
                     "AbortSlew",
                     device_name=paired_devices["Telescope"],
                     log_message=f"Stopping telescope {paired_devices['Telescope']} slewing",
+                    weather_sensitive=False,
+                    error_sensitive=error_sensitive
                 )
             else:
-                self.monitor_action(
-                    "Telescope",
-                    "Slewing",
-                    False,
-                    "AbortSlew",
-                    log_message="Stopping Telescope(s) slewing",
-                )
+                for device_name in self.devices['Telescope']:
+                    try:
+                        self.guider[device_name].running = False
+                    except Exception as e:
+                        self.error_source.append(
+                            {"device_type": "Guider", "device_name": device_name, "error": str(e)}
+                        )
+                        self.logger.error(f"Error stopping telescope {device_name} guiding: {str(e)}")
+
+                    self.monitor_action(
+                        "Telescope",
+                        "Slewing",
+                        False,
+                        "AbortSlew",
+                        device_name=device_name,
+                        log_message=f"Stopping telescope {device_name} slewing",
+                        weather_sensitive=False,
+                        error_sensitive=error_sensitive
+                    )
 
             # stop telescope tracking
             if paired_devices is not None:
@@ -1038,17 +1003,23 @@ class Observatory:
                     "Tracking",
                     False,
                     "Tracking",
-                    device_name=paired_devices["Telescope"],
+                    device_name=device_name,
                     log_message=f"Stopping telescope {paired_devices['Telescope']} tracking",
+                    weather_sensitive=False,
+                    error_sensitive=error_sensitive
                 )
             else:
-                self.monitor_action(
-                    "Telescope",
-                    "Tracking",
-                    False,
-                    "Tracking",
-                    log_message="Stopping Telescope(s) tracking",
-                )
+                for device_name in self.devices['Telescope']:
+                    self.monitor_action(
+                        "Telescope",
+                        "Tracking",
+                        False,
+                        "Tracking",
+                        device_name=device_name,
+                        log_message=f"Stopping telescope {device_name} tracking",
+                        weather_sensitive=False,
+                        error_sensitive=error_sensitive
+                    )
 
             # park telescope
             if paired_devices is not None:
@@ -1059,16 +1030,22 @@ class Observatory:
                     "Park",
                     device_name=paired_devices["Telescope"],
                     log_message=f"Parking telescope {paired_devices['Telescope']}",
+                    weather_sensitive=False,
+                    error_sensitive=error_sensitive
                 )
 
             else:
-                self.monitor_action(
-                    "Telescope",
-                    "AtPark",
-                    True,
-                    "Park",
-                    log_message="Parking Telescope(s)",
-                )
+                for device_name in self.devices['Telescope']:
+                    self.monitor_action(
+                        "Telescope",
+                        "AtPark",
+                        True,
+                        "Park",
+                        device_name=device_name,
+                        log_message=f"Parking telescope {device_name}",
+                        weather_sensitive=False,
+                        error_sensitive=error_sensitive
+                    )
 
         if "Dome" in self.config:
             # park dome
@@ -1080,11 +1057,21 @@ class Observatory:
                     "Park",
                     device_name=paired_devices["Dome"],
                     log_message=f"Parking Dome {paired_devices['Dome']}",
+                    weather_sensitive=False,
+                    error_sensitive=error_sensitive
                 )
             else:
-                self.monitor_action(
-                    "Dome", "AtPark", True, "Park", log_message="Parking Dome(s)"
-                )
+                for device_name in self.devices['Dome']:
+                    self.monitor_action(
+                        "Dome",
+                        "AtPark",
+                        True,
+                        "Park",
+                        device_name=device_name,
+                        log_message=f"Parking Dome {device_name}",
+                        weather_sensitive=False,
+                        error_sensitive=error_sensitive
+                    )
 
             # close dome shutter
             if paired_devices is not None:
@@ -1095,15 +1082,21 @@ class Observatory:
                     "CloseShutter",
                     device_name=paired_devices["Dome"],
                     log_message=f"Closing Dome shutter of {paired_devices['Dome']}",
+                    weather_sensitive=False,
+                    error_sensitive=error_sensitive
                 )
             else:
-                self.monitor_action(
-                    "Dome",
-                    "ShutterStatus",
-                    1,
-                    "CloseShutter",
-                    log_message="Closing Dome shutter(s)",
-                )
+                for device_name in self.devices['Dome']:
+                    self.monitor_action(
+                        "Dome",
+                        "ShutterStatus",
+                        1,
+                        "CloseShutter",
+                        device_name=device_name,
+                        log_message=f"Closing Dome shutter of {device_name}",
+                        weather_sensitive=False,
+                        error_sensitive=error_sensitive
+                    )
 
         if self.speculoos:
             # SPECULOOS EDIT
@@ -1234,12 +1227,7 @@ class Observatory:
             self.logger.error("Weather safety check timed out")
             return
 
-        while (
-            self.schedule_running
-            and self.watchdog_running
-            and self.error_free
-            and (self.interrupt is False)
-        ):
+        while self.schedule_running and self.watchdog_running and self.error_free:
             # loop through self.threads and remove the ones that are dead
             self.threads = [i for i in self.threads if i["thread"].is_alive()]
 
@@ -1377,12 +1365,7 @@ class Observatory:
                 )
 
             # set 'completed' flag to True if ended under normal conditions
-            if (
-                self.error_free
-                and (self.interrupt is False)
-                and self.schedule_running
-                and self.watchdog_running
-            ):
+            if self.error_free and self.schedule_running and self.watchdog_running:
                 if (
                     row["action_type"] in ["calibration", "close"]
                 ) or self.weather_safe:
@@ -1410,6 +1393,7 @@ class Observatory:
             "CoolerOn",
             device_name=row["device_name"],
             log_message=f"Turning on camera cooler for {row['device_name']}",
+            weather_sensitive=False,
         )
 
         # set temperature
@@ -1423,6 +1407,7 @@ class Observatory:
             abs_tol=temperature_tolerance,
             log_message=f"Setting camera {row['device_name']} temperature to {set_temperature}C with tolerance of {temperature_tolerance}C",
             timeout=60 * 30,
+            weather_sensitive=False,
         )  # 30 minutes
 
     def pre_sequence(self, row: dict, paired_devices: dict) -> tuple:
@@ -1560,7 +1545,6 @@ class Observatory:
             "filter" in action_value
             and "FilterWheel" in paired_devices
             and self.error_free
-            and (self.interrupt is False)
         ):
             # get filter name
             f = action_value["filter"]
@@ -1584,6 +1568,7 @@ class Observatory:
                 "Position",
                 device_name=paired_devices["FilterWheel"],
                 log_message=f"Setting FilterWheel {paired_devices['FilterWheel']} to {f}",
+                weather_sensitive=False,
             )
 
     def wait_for_slew(self, paired_devices: dict) -> None:
@@ -1619,7 +1604,7 @@ class Observatory:
         # slew settle time (guess)
         time.sleep(1)
 
-    def check_conditions(self, row: dict = None) -> bool:
+    def check_conditions(self, row: dict | None = None) -> bool:
         """
         Check the conditions for running a sequence or action.
 
@@ -1635,10 +1620,7 @@ class Observatory:
         """
 
         base_conditions = (
-            self.error_free
-            and not self.interrupt
-            and self.schedule_running
-            and self.watchdog_running
+            self.error_free and self.schedule_running and self.watchdog_running
         )
 
         if row is None:
@@ -2796,11 +2778,13 @@ class Observatory:
         monitor_command: str,
         desired_condition: any,
         run_command: str,
-        device_name: str = "",
+        device_name: str,
         run_command_type: str = "",
         abs_tol: float = 0,
         log_message: str = "",
         timeout: float = 120,
+        error_sensitive: bool = True,
+        weather_sensitive: bool = True,
     ) -> None:
         """
         Monitor device(s) of device_type for a given monitor_command and run_command if desired_condition is not met.
@@ -2810,158 +2794,108 @@ class Observatory:
             monitor_command (str): The command to monitor on the device(s).
             desired_condition (any): The desired condition that should be met.
             run_command (str): The command to run if the desired_condition is not met.
-            device_name (str, optional): Name of the specific device to monitor (default '').
+            device_name (str): Name of the specific device to monitor.
             run_command_type (str, optional): Type of run command ('set' or 'get') (default '').
             abs_tol (float, optional): Absolute tolerance for comparing conditions (default 0).
             log_message (str, optional): Custom log message that runs if conditions not initially met (default '').
             timeout (float, optional): Maximum time to monitor before timing out (default 120 seconds).
+            error_sensitive (bool, optional): If True, monitor action will be sensitive to errors (default True).
+            weather_sensitive (bool, optional): If True, monitor action will be sensitive to weather conditions (default True).
 
         """
-        # TODO: improve logging
-        # TODO: add weather_safe and error_free as optional check conditions?
-        start_time = time.time()
 
+        def check_safe():
+            return (not weather_sensitive or self.weather_safe) and (
+                not error_sensitive or self.error_free
+            )
+
+        start_time = time.time()
         self.logger.debug(
-            f"Monitor action: {device_type} {monitor_command} {desired_condition} {run_command} {run_command_type} {abs_tol} {log_message} {timeout}"
+            f"Monitor action: Starting {device_type} {device_name} {monitor_command} {desired_condition} {run_command} {run_command_type} {abs_tol} {log_message} {timeout}"
         )
 
-        if monitor_command == run_command and run_command_type == "":
-            run_command_type = "set"
-        elif run_command_type == "":
-            run_command_type = "get"
+        unique_key = f"{device_type}{monitor_command}{desired_condition}{run_command}{run_command_type}"
+        self.monitor_action_queue[device_name][unique_key] = start_time
 
-        self.logger.debug(f"run_command_type: {run_command_type}")
+        try:
+            # Wait for turn
+            while any(
+                value < self.monitor_action_queue[device_name][unique_key]
+                for value in self.monitor_action_queue[device_name].values()
+            ):
+                if not check_safe():
+                    return
+                time.sleep(0.5)
+                self.logger.debug(
+                    f"Monitor action: Waiting {device_type} {device_name} {monitor_command}"
+                )
+                if time.time() - start_time > 3 * timeout:
+                    raise TimeoutError(
+                        f"Monitor run action queue timeout: {device_type} {monitor_command} {desired_condition} {run_command}"
+                    )
 
-        if device_type in self.config:
-            monitor_status = []
-            self.logger.debug(f"device_name: {device_name}")
-            if device_name == "":
-                for d in self.devices[device_type]:
-                    device = self.devices[device_type][d]
+            # Execute monitor action
+            device = self.devices[device_type][device_name]
 
-                    # monitor
-                    status = device.get(monitor_command)
-                    monitor_status.append(status)
+            # define command type
+            if monitor_command == run_command and run_command_type == "":
+                run_command_type = "set"
+            elif run_command_type == "":
+                run_command_type = "get"
 
-                    # run if desired_condition not met
-                    if (
-                        math.isclose(
-                            status, desired_condition, rel_tol=0, abs_tol=abs_tol
+            count = 0
+            while True:
+                monitor_status = device.get(monitor_command)
+                if math.isclose(
+                    monitor_status, desired_condition, rel_tol=0, abs_tol=abs_tol
+                ):
+                    self.logger.info(
+                        f"Monitor run action complete: {device_type} {monitor_command} {desired_condition} {run_command} {monitor_status}"
+                    )
+                    return
+
+                if not check_safe():
+                    return
+
+                if time.time() - start_time > timeout:
+                    raise TimeoutError(
+                        f"Monitor run action timeout: {device_type} {monitor_command} {desired_condition} {run_command} {monitor_status}"
+                    )
+
+                else:
+                    if count < 1:
+                        self.logger.info(
+                            f"Monitor action: Desired condition of {desired_condition} not met, running {run_command} on {device_type} {device_name}"
                         )
-                        is False
-                    ):
+                        if log_message:
+                            self.logger.info(log_message)
+
                         if run_command_type == "get":
-                            self.logger.debug(
-                                f"Running get {run_command} on {device_type} {d}"
-                            )
                             device.get(run_command, no_kwargs=True)
                         elif run_command_type == "set":
-                            self.logger.debug(
-                                f"Running set {run_command} on {device_type} {d}"
-                            )
                             device.set(run_command, desired_condition)
+                    count += 1
 
-            else:
-                device = self.devices[device_type][device_name]
+                time.sleep(0.5)
 
-                # monitor
-                status = device.get(monitor_command)
-                monitor_status.append(status)
+        except Exception as e:
+            self.error_source.append(
+                {
+                    "device_type": device_type,
+                    "device_name": "",
+                    "error": str(e),
+                }
+            )
+            self.logger.error(
+                f"Monitor action error: {device_type} {device_name} {monitor_command} {desired_condition} {run_command} {run_command_type} {abs_tol} {log_message} {timeout} {e}"
+            )
 
-                # run if desired_condition not met
-                if (
-                    math.isclose(status, desired_condition, rel_tol=0, abs_tol=abs_tol)
-                    is False
-                ):
-                    if run_command_type == "get":
-                        self.logger.debug(
-                            f"Running get {run_command} on {device_type} {device_name}"
-                        )
-                        device.get(run_command, no_kwargs=True)
-                    elif run_command_type == "set":
-                        self.logger.debug(
-                            f"Running set {run_command} on {device_type} {device_name}"
-                        )
-                        device.set(run_command, desired_condition)
-
-            # check if desired_condition is met by all devices
-            all_monitor_status = np.mean(monitor_status)
-
-            # if not met, monitor until timeout
+        finally:
             if (
-                math.isclose(
-                    all_monitor_status, desired_condition, rel_tol=0, abs_tol=abs_tol
-                )
-                is False
+                device_name in self.monitor_action_queue
+                and unique_key in self.monitor_action_queue[device_name]
             ):
-                if log_message != "":
-                    self.logger.info(f"{log_message}")
-                else:
-                    self.logger.info(
-                        f"Monitor run action: {device_type} {monitor_command} {desired_condition} {run_command} {all_monitor_status}"
-                    )
-
-                while (
-                    math.isclose(
-                        all_monitor_status,
-                        desired_condition,
-                        rel_tol=0,
-                        abs_tol=abs_tol,
-                    )
-                    is False
-                ):
-                    monitor_status = []
-                    if device_name == "":
-                        for d in self.devices[device_type]:
-                            device = self.devices[device_type][d]
-
-                            # monitor
-                            status = device.get(monitor_command)
-                            monitor_status.append(status)
-
-                    else:
-                        device = self.devices[device_type][device_name]
-
-                        # monitor
-                        status = device.get(monitor_command)
-                        monitor_status.append(status)
-
-                    all_monitor_status = np.mean(monitor_status)
-
-                    time.sleep(0.5)
-
-                    if time.time() - start_time > timeout:
-                        break
-
-                if (
-                    math.isclose(
-                        all_monitor_status,
-                        desired_condition,
-                        rel_tol=0,
-                        abs_tol=abs_tol,
-                    )
-                    is True
-                ):
-                    self.logger.info(
-                        f"Monitor run action complete: {device_type} {monitor_command} {desired_condition} {run_command} {all_monitor_status}"
-                    )
-                else:
-                    self.error_source.append(
-                        {
-                            "device_type": device_type,
-                            "device_name": "",
-                            "error": "Monitor run action timeout",
-                        }
-                    )
-                    self.logger.error(
-                        f"Monitor run action timeout: {device_type} {monitor_command} {desired_condition} {run_command} {all_monitor_status}"
-                    )
-                    raise TimeoutError(
-                        f"Monitor run action timeout: {device_type} {monitor_command} {desired_condition} {run_command} {all_monitor_status}"
-                    )
-        else:
-            self.logger.error(f"{device_type} not found in observatory.")
-            raise ValueError(f"{device_type} not found in observatory.")
+                del self.monitor_action_queue[device_name][unique_key]
 
     def queue_get(self) -> None:
         """

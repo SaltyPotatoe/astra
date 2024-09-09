@@ -45,6 +45,8 @@ MAX_ERROR_PIXELS = 20
 # max alloed shift to correct during stabilisation
 MAX_ERROR_STABIL_PIXELS = 40
 
+# TODO: add logger handler here?
+
 
 class CustomImageClass(Image):
     def preconstruct_hook(self):
