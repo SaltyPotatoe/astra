@@ -611,6 +611,7 @@ class Observatory:
                             f"SELECT COUNT(*), MAX(datetime) FROM polling WHERE device_type = 'SafetyMonitor' AND device_value = 'False' AND datetime > datetime('now', '-{max_safe_duration} minutes')"
                         )
                     else:
+                        self.logger.warning("No safety monitor found")
                         rows = [(0, None)]
 
                     # check internal safety monitor
@@ -632,9 +633,12 @@ class Observatory:
 
                     # set time_to_safe if weather unsafe
                     if rows[0][0] > 0 or internal_time_to_safe > 0:
-                        time_since_last_unsafe = pd.to_datetime(
-                            datetime.now(UTC)
-                        ) - pd.to_datetime(rows[0][1], utc=True)
+                        if rows[0][1] is not None:
+                            time_since_last_unsafe = pd.to_datetime(
+                                datetime.now(UTC)
+                            ) - pd.to_datetime(rows[0][1], utc=True)
+                        else:
+                            time_since_last_unsafe = pd.to_timedelta(0)
 
                         current_time_to_safe = (
                             max_safe_duration
@@ -673,7 +677,11 @@ class Observatory:
                             "error": str(e),
                         }
                     )
-                    self.logger.error(f"Error during watchdog check: {str(e)}")
+                    self.logger.error(
+                        f"Error during watchdog check: {str(e)}",
+                        exc_info=True,
+                        stack_info=True,
+                    )
 
             else:
                 try:
@@ -919,6 +927,7 @@ class Observatory:
                         ]["datetime"]
 
         self.heartbeat["polling"] = polled_list
+        self.heartbeat["monitor-action-queue"] = self.monitor_action_queue
 
     def speculoos_check_and_ack_error(self):
         if "Telescope" in self.config:
@@ -2953,38 +2962,46 @@ class Observatory:
             elif run_command_type == "":
                 run_command_type = "get"
 
-            count = 0
+            ran = False
             while True:
                 monitor_status = device.get(monitor_command)
-                if math.isclose(
+                isclose = math.isclose(
                     monitor_status, desired_condition, rel_tol=0, abs_tol=abs_tol
-                ):
-                    self.logger.info(
-                        f"Monitor run action complete: {device_type} {monitor_command} {desired_condition} {run_command} {monitor_status}"
-                    )
-                    return
+                )
 
                 if not check_safe():
                     return
 
                 if time.time() - start_time > timeout:
                     raise TimeoutError(
-                        f"Monitor run action timeout: {device_type} {monitor_command} {desired_condition} {run_command} {monitor_status}"
+                        f"Monitor-action for {device_name} timeout: Timeout for reaching desired condition of {desired_condition} "
+                        f"when monitoring {monitor_command}, currently at {monitor_status} on {device_type}"
                     )
 
-                else:
-                    if count < 1:
-                        self.logger.info(
-                            f"Monitor action: Desired condition of {desired_condition} not met, running {run_command} on {device_type} {device_name}"
-                        )
-                        if log_message:
-                            self.logger.info(log_message)
+                if isclose is False and ran is False:
+                    self.logger.info(
+                        f"Monitor-action for {device_name}: Desired condition of {desired_condition} does not "
+                        f"match {monitor_status} when monitoring {monitor_command}, running {run_command} on {device_type}"
+                    )
+                    if log_message:
+                        self.logger.info(log_message)
 
-                        if run_command_type == "get":
-                            device.get(run_command, no_kwargs=True)
-                        elif run_command_type == "set":
-                            device.set(run_command, desired_condition)
-                    count += 1
+                    if run_command_type == "get":
+                        device.get(run_command, no_kwargs=True)
+                    elif run_command_type == "set":
+                        device.set(run_command, desired_condition)
+
+                    ran = True
+
+                elif isclose and ran:
+                    self.logger.info(
+                        f"Monitor-action for {device_name} complete: Desired condition of {desired_condition} met "
+                        f"after running {run_command} on {device_type}"
+                    )
+                    return
+
+                if isclose and not ran:
+                    return
 
                 time.sleep(0.5)
 
@@ -2997,7 +3014,11 @@ class Observatory:
                 }
             )
             self.logger.error(
-                f"Monitor action error: {device_type} {device_name} {monitor_command} {desired_condition} {run_command} {run_command_type} {abs_tol} {log_message} {timeout} {e}"
+                f"Monitor-action error: Device Type: {device_type}, Device Name: {device_name}, "
+                f"Monitor Command: {monitor_command}, Desired Condition: {desired_condition}, "
+                f"Run Command: {run_command}, Run Command Type: {run_command_type}, "
+                f"Absolute Tolerance: {abs_tol}, Log Message: {log_message}, Timeout: {timeout}, "
+                f"Error: {e}"
             )
 
         finally:

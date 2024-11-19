@@ -1,4 +1,5 @@
 import logging
+import traceback
 from datetime import UTC, datetime
 
 
@@ -15,7 +16,13 @@ class LoggingHandler(logging.Handler):
 
         dt_str = datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
         level = record.levelname.lower()
-        message = record.msg + " " + str(record.exc_info)
+        message = record.msg
+
+        if record.exc_info:
+            message += "\n" + "".join(traceback.format_exception(*record.exc_info))
+
+        if record.stack_info:
+            message += "\n" + record.stack_info
 
         # make message safe for sql
         message = message.replace("'", "''")

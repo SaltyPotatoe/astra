@@ -44,7 +44,7 @@ def load_observatories():
     config_files = glob(str(CONFIG.folder_observatory / "*.yaml"))
 
     for config_filename in config_files:
-        obs = Observatory(config_filename, TRUNCATE_SCHEDULE, speculoos=True)
+        obs = Observatory(config_filename, TRUNCATE_SCHEDULE, speculoos=False)
         OBSERVATORIES[obs.name] = obs
 
         if "Misc" in obs.config:
@@ -867,6 +867,8 @@ if __name__ == "__main__":
 
     # start the server
     log_level = "info" if not DEBUG else "debug"
+    if log_level == "info":
+        logging.getLogger().setLevel(logging.INFO)
     uvicorn.run(
         app, host="0.0.0.0", port=8000, log_level=log_level, timeout_graceful_shutdown=0
     )

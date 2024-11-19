@@ -22,13 +22,6 @@ then install Astra locally with
 pip install -e {path_to_astra_clone}
 ```
 
-## conda
-Astra dependencies can be installed in a fresh conda environment with
-
-```bash
-conda env create -f {path_to_astra}/{operating system}-environment.yml
-```
-
 ## Testing installation 
 > only if installed as a local python package with pip
 
