@@ -44,7 +44,9 @@ def load_observatories():
     global WEBCAMFEEDS
     global FWS
 
-    config_files = glob(str(CONFIG.paths.folder_observatory / "*_config.yml"))
+    config_files = glob(
+        str(CONFIG.paths.folder_observatory / "*_config.yml")
+    )  # should we use CONFIG.config['observatory_name'] here instead?
 
     for config_filename in config_files:
         obs = Observatory(config_filename, TRUNCATE_SCHEDULE, speculoos=False)

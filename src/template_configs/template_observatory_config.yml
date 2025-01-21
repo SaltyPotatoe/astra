@@ -63,6 +63,11 @@ ObservingConditions:
           max_safe_duration: 150
         - max: 90
           max_safe_duration: 300
+      Temperature:
+        - min: 0
+          max_safe_duration: 30
+        - min: -5
+          max_safe_duration: 150
       WindSpeed:
         - max: 10
           max_safe_duration: 30
@@ -82,4 +87,4 @@ SafetyMonitor:
 
 Misc:
   # Webcam: http://172.16.0.198:8888/inside
-  backup_time: "12:00"
+  backup_time: "12:00" # back up of polled data (e.g. CCDTemperature) and logs

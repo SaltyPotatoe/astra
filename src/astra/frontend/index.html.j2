@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <title>Astra</title>
     <meta charset="UTF-8">
@@ -9,18 +10,21 @@
     <script src="/js/particles.min.js"></script>
     <link rel="icon" href="favicon.svg">
 </head>
+
 <body class="bg-black/90 text-slate-100 select-none w-full h-full">
     {% set navigation = ['Summary', 'Log', 'Weather', 'Controls'] %}
 
-    <div id="popup" class="absolute hidden rounded-md p-2 shadow-md bg-black/90 text-sm opacity-90 whitespace-break-spaces z-20"></div>
+    <div id="popup"
+        class="absolute hidden rounded-md p-2 shadow-md bg-black/90 text-sm opacity-90 whitespace-break-spaces z-20">
+    </div>
 
     <div class="flex flex-wrap h-screen items-center justify-center md:p-10">
-    <div id="particles-js" class="absolute w-full h-full -z-0 max-lg:hidden"></div>
+        <div id="particles-js" class="absolute w-full h-full -z-0 max-lg:hidden"></div>
         {% for observatory in observatories %}
         <div id="{{ observatory }}" class="flex flex-col 
         inset-0 h-full w-screen sm:lg:max-w-screen-sm md:max-w-screen-md max-h-full
         gap-4 space-y-4 p-4 bg-neutral-900/80 shadow-black/50 shadow-xl rounded-xl z-10">
-            
+
             {# title #}
             <div class="flex flex-row flex-initial text-3xl font-bold align-bottom">
                 <div class="flex-initial justify-left">
@@ -32,30 +36,46 @@
                 <div class="grow">
                     <div class="flex flex-row-reverse h-full items-center">
                         {# <div title="Abort!">
-                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="w-6 h-6 text-red-700 hover:text-red-600 cursor-pointer" onclick="interrupt('{{observatory}}')" title="This is your tooltip">
-                                <path fill-rule="evenodd" d="M2.25 12c0-5.385 4.365-9.75 9.75-9.75s9.75 4.365 9.75 9.75-4.365 9.75-9.75 9.75S2.25 17.385 2.25 12zm6-2.438c0-.724.588-1.312 1.313-1.312h4.874c.725 0 1.313.588 1.313 1.313v4.874c0 .725-.588 1.313-1.313 1.313H9.564a1.312 1.312 0 01-1.313-1.313V9.564z" clip-rule="evenodd" />
+                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"
+                                class="w-6 h-6 text-red-700 hover:text-red-600 cursor-pointer"
+                                onclick="interrupt('{{observatory}}')" title="This is your tooltip">
+                                <path fill-rule="evenodd"
+                                    d="M2.25 12c0-5.385 4.365-9.75 9.75-9.75s9.75 4.365 9.75 9.75-4.365 9.75-9.75 9.75S2.25 17.385 2.25 12zm6-2.438c0-.724.588-1.312 1.313-1.312h4.874c.725 0 1.313.588 1.313 1.313v4.874c0 .725-.588 1.313-1.313 1.313H9.564a1.312 1.312 0 01-1.313-1.313V9.564z"
+                                    clip-rule="evenodd" />
                             </svg>
                         </div> #}
 
                         <div title="Schedule">
-                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="w-6 h-6 m-2 cursor-pointer transition ease-in-out duration-150" id="schedule-icon-{{ observatory }}">
-                                <path d="M12.75 12.75a.75.75 0 11-1.5 0 .75.75 0 011.5 0zM7.5 15.75a.75.75 0 100-1.5.75.75 0 000 1.5zM8.25 17.25a.75.75 0 11-1.5 0 .75.75 0 011.5 0zM9.75 15.75a.75.75 0 100-1.5.75.75 0 000 1.5zM10.5 17.25a.75.75 0 11-1.5 0 .75.75 0 011.5 0zM12 15.75a.75.75 0 100-1.5.75.75 0 000 1.5zM12.75 17.25a.75.75 0 11-1.5 0 .75.75 0 011.5 0zM14.25 15.75a.75.75 0 100-1.5.75.75 0 000 1.5zM15 17.25a.75.75 0 11-1.5 0 .75.75 0 011.5 0zM16.5 15.75a.75.75 0 100-1.5.75.75 0 000 1.5zM15 12.75a.75.75 0 11-1.5 0 .75.75 0 011.5 0zM16.5 13.5a.75.75 0 100-1.5.75.75 0 000 1.5z" />
-                                <path fill-rule="evenodd" d="M6.75 2.25A.75.75 0 017.5 3v1.5h9V3A.75.75 0 0118 3v1.5h.75a3 3 0 013 3v11.25a3 3 0 01-3 3H5.25a3 3 0 01-3-3V7.5a3 3 0 013-3H6V3a.75.75 0 01.75-.75zm13.5 9a1.5 1.5 0 00-1.5-1.5H5.25a1.5 1.5 0 00-1.5 1.5v7.5a1.5 1.5 0 001.5 1.5h13.5a1.5 1.5 0 001.5-1.5v-7.5z" clip-rule="evenodd" />
+                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"
+                                class="w-6 h-6 m-2 cursor-pointer transition ease-in-out duration-150"
+                                id="schedule-icon-{{ observatory }}">
+                                <path
+                                    d="M12.75 12.75a.75.75 0 11-1.5 0 .75.75 0 011.5 0zM7.5 15.75a.75.75 0 100-1.5.75.75 0 000 1.5zM8.25 17.25a.75.75 0 11-1.5 0 .75.75 0 011.5 0zM9.75 15.75a.75.75 0 100-1.5.75.75 0 000 1.5zM10.5 17.25a.75.75 0 11-1.5 0 .75.75 0 011.5 0zM12 15.75a.75.75 0 100-1.5.75.75 0 000 1.5zM12.75 17.25a.75.75 0 11-1.5 0 .75.75 0 011.5 0zM14.25 15.75a.75.75 0 100-1.5.75.75 0 000 1.5zM15 17.25a.75.75 0 11-1.5 0 .75.75 0 011.5 0zM16.5 15.75a.75.75 0 100-1.5.75.75 0 000 1.5zM15 12.75a.75.75 0 11-1.5 0 .75.75 0 011.5 0zM16.5 13.5a.75.75 0 100-1.5.75.75 0 000 1.5z" />
+                                <path fill-rule="evenodd"
+                                    d="M6.75 2.25A.75.75 0 017.5 3v1.5h9V3A.75.75 0 0118 3v1.5h.75a3 3 0 013 3v11.25a3 3 0 01-3 3H5.25a3 3 0 01-3-3V7.5a3 3 0 013-3H6V3a.75.75 0 01.75-.75zm13.5 9a1.5 1.5 0 00-1.5-1.5H5.25a1.5 1.5 0 00-1.5 1.5v7.5a1.5 1.5 0 001.5 1.5h13.5a1.5 1.5 0 001.5-1.5v-7.5z"
+                                    clip-rule="evenodd" />
                             </svg>
                         </div>
 
                         <div class="border-r-2 border-neutral-500 border-opacity-50 mx-2">&nbsp;</div>
 
                         <div title="Weather">
-                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 576 512" fill="currentColor" class="w-6 h-6 transition ease-in-out duration-150" id="weather-safe-icon-{{ observatory }}">
-                                <path d="M288 0c17.7 0 32 14.3 32 32V49.7C451.8 63.4 557.7 161 573.9 285.9c2 15.6-17.3 24.4-27.8 12.7C532.1 283 504.8 272 480 272c-38.7 0-71 27.5-78.4 64.1c-1.7 8.7-8.7 15.9-17.6 15.9s-15.8-7.2-17.6-15.9C359 299.5 326.7 272 288 272s-71 27.5-78.4 64.1c-1.7 8.7-8.7 15.9-17.6 15.9s-15.8-7.2-17.6-15.9C167 299.5 134.7 272 96 272c-24.8 0-52.1 11-66.1 26.7C19.4 310.4 .1 301.5 2.1 285.9C18.3 161 124.2 63.4 256 49.7V32c0-17.7 14.3-32 32-32zm0 304c12.3 0 23.5 4.6 32 12.2V430.6c0 45-36.5 81.4-81.4 81.4c-30.8 0-59-17.4-72.8-45l-2.3-4.7c-7.9-15.8-1.5-35 14.3-42.9s35-1.5 42.9 14.3l2.3 4.7c3 5.9 9 9.6 15.6 9.6c9.6 0 17.4-7.8 17.4-17.4V316.2c8.5-7.6 19.7-12.2 32-12.2z"/>
+                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 576 512" fill="currentColor"
+                                class="w-6 h-6 transition ease-in-out duration-150"
+                                id="weather-safe-icon-{{ observatory }}">
+                                <path
+                                    d="M288 0c17.7 0 32 14.3 32 32V49.7C451.8 63.4 557.7 161 573.9 285.9c2 15.6-17.3 24.4-27.8 12.7C532.1 283 504.8 272 480 272c-38.7 0-71 27.5-78.4 64.1c-1.7 8.7-8.7 15.9-17.6 15.9s-15.8-7.2-17.6-15.9C359 299.5 326.7 272 288 272s-71 27.5-78.4 64.1c-1.7 8.7-8.7 15.9-17.6 15.9s-15.8-7.2-17.6-15.9C167 299.5 134.7 272 96 272c-24.8 0-52.1 11-66.1 26.7C19.4 310.4 .1 301.5 2.1 285.9C18.3 161 124.2 63.4 256 49.7V32c0-17.7 14.3-32 32-32zm0 304c12.3 0 23.5 4.6 32 12.2V430.6c0 45-36.5 81.4-81.4 81.4c-30.8 0-59-17.4-72.8-45l-2.3-4.7c-7.9-15.8-1.5-35 14.3-42.9s35-1.5 42.9 14.3l2.3 4.7c3 5.9 9 9.6 15.6 9.6c9.6 0 17.4-7.8 17.4-17.4V316.2c8.5-7.6 19.7-12.2 32-12.2z" />
                             </svg>
                         </div>
 
                         <div title="Watchdog">
-                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="w-6 h-6 m-2 transition ease-in-out duration-150" id="watchdog-icon-{{ observatory }}">
+                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"
+                                class="w-6 h-6 m-2 transition ease-in-out duration-150"
+                                id="watchdog-icon-{{ observatory }}">
                                 <path d="M12 15a3 3 0 100-6 3 3 0 000 6z" />
-                                <path fill-rule="evenodd" d="M1.323 11.447C2.811 6.976 7.028 3.75 12.001 3.75c4.97 0 9.185 3.223 10.675 7.69.12.362.12.752 0 1.113-1.487 4.471-5.705 7.697-10.677 7.697-4.97 0-9.186-3.223-10.675-7.69a1.762 1.762 0 010-1.113zM17.25 12a5.25 5.25 0 11-10.5 0 5.25 5.25 0 0110.5 0z" clip-rule="evenodd" />
+                                <path fill-rule="evenodd"
+                                    d="M1.323 11.447C2.811 6.976 7.028 3.75 12.001 3.75c4.97 0 9.185 3.223 10.675 7.69.12.362.12.752 0 1.113-1.487 4.471-5.705 7.697-10.677 7.697-4.97 0-9.186-3.223-10.675-7.69a1.762 1.762 0 010-1.113zM17.25 12a5.25 5.25 0 11-10.5 0 5.25 5.25 0 0110.5 0z"
+                                    clip-rule="evenodd" />
                             </svg>
                         </div>
 
@@ -70,16 +90,16 @@
             {# <div class="w-full bg-gray-200 rounded-full h-2.5 dark:bg-gray-700">
                 <div class="bg-blue-600 h-2.5 rounded-full" style="width: 95%"></div>
             </div> #}
-                
+
             {# nav #}
             <div class="flex-initial">
                 <nav class="flex flex-wrap justify-between">
                     {% for nav in navigation %}
-                        <div id="{{nav | lower}}-{{ observatory }}" 
-                            class="flex-initial p-2 text-center hover:text-slate-200 cursor-pointer {{ 'underline' if loop.first else '' }}" 
-                            onclick="navClick(this)">
+                    <div id="{{nav | lower}}-{{ observatory }}"
+                        class="flex-initial p-2 text-center hover:text-slate-200 cursor-pointer {{ 'underline' if loop.first else '' }}"
+                        onclick="navClick(this)">
                         {{ nav }}
-                        </div>
+                    </div>
                     {% endfor %}
                 </nav>
             </div>
@@ -87,116 +107,146 @@
             {# content #}
             <div id="content-{{ observatory }}" class="flex-initial justify-center font-light overflow-auto">
                 {% for nav in navigation %}
-                    <div id="{{nav | lower}}-content-{{ observatory }}" class="{{ '' if loop.first else 'hidden' }} w-full space-y-4 flex flex-col h-full">
-                        {% if nav == 'Summary'%}
-                        {# move table to macro? #}
+                <div id="{{nav | lower}}-content-{{ observatory }}"
+                    class="{{ '' if loop.first else 'hidden' }} w-full space-y-4 flex flex-col h-full">
+                    {% if nav == 'Summary'%}
+                    {# move table to macro? #}
 
-                            <table id="summary-table-0-{{ observatory }}" class="text-left w-full table-auto rounded-lg bg-gray-600/20">
-                                <thead>
-                                </thead>
-                                <tbody>
-                                </tbody>
-                            </table>
+                    <table id="summary-table-0-{{ observatory }}"
+                        class="text-left w-full table-auto rounded-lg bg-gray-600/20">
+                        <thead>
+                        </thead>
+                        <tbody>
+                        </tbody>
+                    </table>
 
-                            <table id="summary-table-1-{{ observatory }}" class="text-left w-full table-auto rounded-lg bg-gray-600/20">
-                                <thead>
-                                </thead>
-                                <tbody>
-                                </tbody>
-                            </table>
-                            
-                            <div class="flex flex-row justify-center items-center">
-                            {# lastest image #}
-                                <div id="summary-last-image-parent-{{ observatory }}" class="flex justify-center basis-1/2 mr-2 relative">
-                                    <img id="summary-last-image-{{ observatory }}" alt="lastest image" class="object-contain h-full w-full hidden">
-                                    <svg xmlns="http://www.w3.org/2000/svg" id="summary-last-image-placeholder-{{ observatory }}" viewBox="0 0 24 24" fill="currentColor" class="w-full p-12 opacity-20">
-                                        <path fill-rule="evenodd" d="M1.5 6a2.25 2.25 0 012.25-2.25h16.5A2.25 2.25 0 0122.5 6v12a2.25 2.25 0 01-2.25 2.25H3.75A2.25 2.25 0 011.5 18V6zM3 16.06V18c0 .414.336.75.75.75h16.5A.75.75 0 0021 18v-1.94l-2.69-2.689a1.5 1.5 0 00-2.12 0l-.88.879.97.97a.75.75 0 11-1.06 1.06l-5.16-5.159a1.5 1.5 0 00-2.12 0L3 16.061zm10.125-7.81a1.125 1.125 0 112.25 0 1.125 1.125 0 01-2.25 0z" clip-rule="evenodd" />
-                                    </svg>
-                                    <div class="flex opacity-0 hover:opacity-80 bg-black duration-100 absolute h-full w-full text-white justify-center items-center">
-                                        <div id="summary-last-image-text-{{ observatory }}" class="whitespace-break-spaces">
-                                        </div>
-                                    </div>
-                                </div>
+                    <table id="summary-table-1-{{ observatory }}"
+                        class="text-left w-full table-auto rounded-lg bg-gray-600/20">
+                        <thead>
+                        </thead>
+                        <tbody>
+                        </tbody>
+                    </table>
 
-                            {# webcam feed #}
-                                <div class="flex basis-1/2 ml-2 justify-center">
-                                    {% if webcamfeeds != {} %}
-                                        <iframe src="/video/{{observatory}}/" class="w-full rounded-lg aspect-square"></iframe>
-                                    {% endif %}
-                                </div>
-                            </div>
-
-                        {% elif nav == 'Log' %}
-                            
-                            <div class="flex flex-col space-y-4 h-full">
-
-                                <div class="flex-none basis-1/4 overflow-auto">
-                                    {# <span class="my-4">schedule</span> #}
-                                    <table id="schedule-table-0-{{ observatory }}" class="text-left w-full table-auto rounded-lg bg-gray-600/20">
-                                        <thead>
-                                        </thead>
-                                        <tbody>
-                                        </tbody>
-                                    </table>
-                                </div>
-
-                                <div id="log-0-{{ observatory }}" class="basis-3/4 text-left w-full text-sm rounded-lg bg-gray-600/20 overflow-y-scroll overflow-x-clip">
-                                </div>
-                        
-                            </div>
-
-                        {% elif nav == 'Weather' %}
-                            
-                            <div class="flex-none flex flex-col h-full">
-                                <div id="weather-chart-{{observatory}}"></div>
-                            </div>
-                            
-                        {% elif nav == 'Controls' %}
-
-                            <div class="flex flex-col flex-grow place-content-center items-center my-auto">
-                                <div class="grid grid-cols-2 gap-4 md:w-3/6 sm:w-full my-4">
-                                    {# <button class="text-sm font-medium rounded-xl aspect-square bg-gray-600/20 hover:bg-gray-700/20 px-5 py-2.5 transition ease-in-out duration-150" 
-                                        id="watchdog-control-{{observatory}}">
-                                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="w-1/2 h-1/2 mx-auto" id="watchdog-icon-{{ observatory }}">
-                                            <path d="M12 15a3 3 0 100-6 3 3 0 000 6z" />
-                                            <path fill-rule="evenodd" d="M1.323 11.447C2.811 6.976 7.028 3.75 12.001 3.75c4.97 0 9.185 3.223 10.675 7.69.12.362.12.752 0 1.113-1.487 4.471-5.705 7.697-10.677 7.697-4.97 0-9.186-3.223-10.675-7.69a1.762 1.762 0 010-1.113zM17.25 12a5.25 5.25 0 11-10.5 0 5.25 5.25 0 0110.5 0z" clip-rule="evenodd" />
-                                        </svg>
-                                        <span>Watchdog</span>
-                                    </button> #}
-
-                                    <button class="text-sm font-medium rounded-xl aspect-square bg-gray-600/20 hover:bg-gray-700/20 px-5 py-2.5 transition ease-in-out duration-150" 
-                                        id="schedule-control-{{observatory}}">
-                                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="w-1/2 h-1/2 mx-auto" id="schedule-icon-{{ observatory }}">
-                                            <path d="M12.75 12.75a.75.75 0 11-1.5 0 .75.75 0 011.5 0zM7.5 15.75a.75.75 0 100-1.5.75.75 0 000 1.5zM8.25 17.25a.75.75 0 11-1.5 0 .75.75 0 011.5 0zM9.75 15.75a.75.75 0 100-1.5.75.75 0 000 1.5zM10.5 17.25a.75.75 0 11-1.5 0 .75.75 0 011.5 0zM12 15.75a.75.75 0 100-1.5.75.75 0 000 1.5zM12.75 17.25a.75.75 0 11-1.5 0 .75.75 0 011.5 0zM14.25 15.75a.75.75 0 100-1.5.75.75 0 000 1.5zM15 17.25a.75.75 0 11-1.5 0 .75.75 0 011.5 0zM16.5 15.75a.75.75 0 100-1.5.75.75 0 000 1.5zM15 12.75a.75.75 0 11-1.5 0 .75.75 0 011.5 0zM16.5 13.5a.75.75 0 100-1.5.75.75 0 000 1.5z" />
-                                            <path fill-rule="evenodd" d="M6.75 2.25A.75.75 0 017.5 3v1.5h9V3A.75.75 0 0118 3v1.5h.75a3 3 0 013 3v11.25a3 3 0 01-3 3H5.25a3 3 0 01-3-3V7.5a3 3 0 013-3H6V3a.75.75 0 01.75-.75zm13.5 9a1.5 1.5 0 00-1.5-1.5H5.25a1.5 1.5 0 00-1.5 1.5v7.5a1.5 1.5 0 001.5 1.5h13.5a1.5 1.5 0 001.5-1.5v-7.5z" clip-rule="evenodd" />
-                                        </svg>
-                                        <span>Schedule</span>
-                                    </button>
-
-                                    {# <button class="text-white/50 text-sm font-medium rounded-xl aspect-square bg-gray-600/20 hover:bg-gray-700/20 px-5 py-2.5" 
-                                        onclick="openObservatory('{{observatory}}')">
-                                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="w-1/2 h-1/2 mx-auto">
-                                            <path fill-rule="evenodd" d="M12 2.25c-5.385 0-9.75 4.365-9.75 9.75s4.365 9.75 9.75 9.75 9.75-4.365 9.75-9.75S17.385 2.25 12 2.25zm.53 5.47a.75.75 0 00-1.06 0l-3 3a.75.75 0 101.06 1.06l1.72-1.72v5.69a.75.75 0 001.5 0v-5.69l1.72 1.72a.75.75 0 101.06-1.06l-3-3z" clip-rule="evenodd" />
-                                        </svg>
-                                        <span>Open observatory</span>
-                                    </button> #}
-                                    <button class="text-white/50 text-sm font-medium rounded-xl aspect-square bg-gray-600/20 hover:bg-gray-700/20 px-5 py-2.5" 
-                                        onclick="closeObservatory('{{observatory}}')">
-                                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="w-1/2 h-1/2 mx-auto">
-                                            <path fill-rule="evenodd" d="M12 2.25c-5.385 0-9.75 4.365-9.75 9.75s4.365 9.75 9.75 9.75 9.75-4.365 9.75-9.75S17.385 2.25 12 2.25zm-.53 14.03a.75.75 0 001.06 0l3-3a.75.75 0 10-1.06-1.06l-1.72 1.72V8.25a.75.75 0 00-1.5 0v5.69l-1.72-1.72a.75.75 0 00-1.06 1.06l3 3z" clip-rule="evenodd" />
-                                        </svg>
-                                        <span>Close observatory</span>
-                                    </button>
-                                    
-                                     {# <button class="col-span-2 text-white text-sm font-medium rounded-full aspect-square bg-red-700 hover:bg-red-600 px-5 py-2.5 m-10" 
-                                        onclick="interrupt('{{observatory}}')">
-                                        ABORT
-                                    </button> #}
+                    <div class="flex flex-row justify-center items-center">
+                        {# lastest image #}
+                        <div id="summary-last-image-parent-{{ observatory }}"
+                            class="flex justify-center basis-1/2 mr-2 relative">
+                            <img id="summary-last-image-{{ observatory }}" alt="lastest image"
+                                class="object-contain h-full w-full hidden">
+                            <svg xmlns="http://www.w3.org/2000/svg"
+                                id="summary-last-image-placeholder-{{ observatory }}" viewBox="0 0 24 24"
+                                fill="currentColor" class="w-full p-12 opacity-20">
+                                <path fill-rule="evenodd"
+                                    d="M1.5 6a2.25 2.25 0 012.25-2.25h16.5A2.25 2.25 0 0122.5 6v12a2.25 2.25 0 01-2.25 2.25H3.75A2.25 2.25 0 011.5 18V6zM3 16.06V18c0 .414.336.75.75.75h16.5A.75.75 0 0021 18v-1.94l-2.69-2.689a1.5 1.5 0 00-2.12 0l-.88.879.97.97a.75.75 0 11-1.06 1.06l-5.16-5.159a1.5 1.5 0 00-2.12 0L3 16.061zm10.125-7.81a1.125 1.125 0 112.25 0 1.125 1.125 0 01-2.25 0z"
+                                    clip-rule="evenodd" />
+                            </svg>
+                            <div
+                                class="flex opacity-0 hover:opacity-80 bg-black duration-100 absolute h-full w-full text-white justify-center items-center">
+                                <div id="summary-last-image-text-{{ observatory }}" class="whitespace-break-spaces">
                                 </div>
                             </div>
-                            
-                        {% endif %}
+                        </div>
+
+                        {# webcam feed #}
+                        <div class="flex basis-1/2 ml-2 justify-center">
+                            {% if webcamfeeds != {} %}
+                            <iframe src="/video/{{observatory}}/" class="w-full rounded-lg aspect-square"></iframe>
+                            {% endif %}
+                        </div>
                     </div>
+
+                    {% elif nav == 'Log' %}
+
+                    <div class="flex flex-col space-y-4 h-full">
+
+                        <div class="flex-none basis-1/4 overflow-auto">
+                            {# <span class="my-4">schedule</span> #}
+                            <table id="schedule-table-0-{{ observatory }}"
+                                class="text-left w-full table-auto rounded-lg bg-gray-600/20">
+                                <thead>
+                                </thead>
+                                <tbody>
+                                </tbody>
+                            </table>
+                        </div>
+
+                        <div id="log-0-{{ observatory }}"
+                            class="basis-3/4 text-left w-full text-sm rounded-lg bg-gray-600/20 overflow-y-scroll overflow-x-clip">
+                        </div>
+
+                    </div>
+
+                    {% elif nav == 'Weather' %}
+
+                    <div class="flex-none flex flex-col h-full">
+                        <div id="weather-chart-{{observatory}}"></div>
+                    </div>
+
+                    {% elif nav == 'Controls' %}
+
+                    <div class="flex flex-col flex-grow place-content-center items-center my-auto">
+                        <div class="grid grid-cols-2 gap-4 md:w-3/6 sm:w-full my-4">
+                            {# <button
+                                class="text-sm font-medium rounded-xl aspect-square bg-gray-600/20 hover:bg-gray-700/20 px-5 py-2.5 transition ease-in-out duration-150"
+                                id="watchdog-control-{{observatory}}">
+                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"
+                                    class="w-1/2 h-1/2 mx-auto" id="watchdog-icon-{{ observatory }}">
+                                    <path d="M12 15a3 3 0 100-6 3 3 0 000 6z" />
+                                    <path fill-rule="evenodd"
+                                        d="M1.323 11.447C2.811 6.976 7.028 3.75 12.001 3.75c4.97 0 9.185 3.223 10.675 7.69.12.362.12.752 0 1.113-1.487 4.471-5.705 7.697-10.677 7.697-4.97 0-9.186-3.223-10.675-7.69a1.762 1.762 0 010-1.113zM17.25 12a5.25 5.25 0 11-10.5 0 5.25 5.25 0 0110.5 0z"
+                                        clip-rule="evenodd" />
+                                </svg>
+                                <span>Watchdog</span>
+                            </button> #}
+
+                            <button
+                                class="text-sm font-medium rounded-xl aspect-square bg-gray-600/20 hover:bg-gray-700/20 px-5 py-2.5 transition ease-in-out duration-150"
+                                id="schedule-control-{{observatory}}">
+                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"
+                                    class="w-1/2 h-1/2 mx-auto" id="schedule-icon-{{ observatory }}">
+                                    <path
+                                        d="M12.75 12.75a.75.75 0 11-1.5 0 .75.75 0 011.5 0zM7.5 15.75a.75.75 0 100-1.5.75.75 0 000 1.5zM8.25 17.25a.75.75 0 11-1.5 0 .75.75 0 011.5 0zM9.75 15.75a.75.75 0 100-1.5.75.75 0 000 1.5zM10.5 17.25a.75.75 0 11-1.5 0 .75.75 0 011.5 0zM12 15.75a.75.75 0 100-1.5.75.75 0 000 1.5zM12.75 17.25a.75.75 0 11-1.5 0 .75.75 0 011.5 0zM14.25 15.75a.75.75 0 100-1.5.75.75 0 000 1.5zM15 17.25a.75.75 0 11-1.5 0 .75.75 0 011.5 0zM16.5 15.75a.75.75 0 100-1.5.75.75 0 000 1.5zM15 12.75a.75.75 0 11-1.5 0 .75.75 0 011.5 0zM16.5 13.5a.75.75 0 100-1.5.75.75 0 000 1.5z" />
+                                    <path fill-rule="evenodd"
+                                        d="M6.75 2.25A.75.75 0 017.5 3v1.5h9V3A.75.75 0 0118 3v1.5h.75a3 3 0 013 3v11.25a3 3 0 01-3 3H5.25a3 3 0 01-3-3V7.5a3 3 0 013-3H6V3a.75.75 0 01.75-.75zm13.5 9a1.5 1.5 0 00-1.5-1.5H5.25a1.5 1.5 0 00-1.5 1.5v7.5a1.5 1.5 0 001.5 1.5h13.5a1.5 1.5 0 001.5-1.5v-7.5z"
+                                        clip-rule="evenodd" />
+                                </svg>
+                                <span>Schedule</span>
+                            </button>
+
+                            {# <button
+                                class="text-white/50 text-sm font-medium rounded-xl aspect-square bg-gray-600/20 hover:bg-gray-700/20 px-5 py-2.5"
+                                onclick="openObservatory('{{observatory}}')">
+                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"
+                                    class="w-1/2 h-1/2 mx-auto">
+                                    <path fill-rule="evenodd"
+                                        d="M12 2.25c-5.385 0-9.75 4.365-9.75 9.75s4.365 9.75 9.75 9.75 9.75-4.365 9.75-9.75S17.385 2.25 12 2.25zm.53 5.47a.75.75 0 00-1.06 0l-3 3a.75.75 0 101.06 1.06l1.72-1.72v5.69a.75.75 0 001.5 0v-5.69l1.72 1.72a.75.75 0 101.06-1.06l-3-3z"
+                                        clip-rule="evenodd" />
+                                </svg>
+                                <span>Open observatory</span>
+                            </button> #}
+                            <button
+                                class="text-white/50 text-sm font-medium rounded-xl aspect-square bg-gray-600/20 hover:bg-gray-700/20 px-5 py-2.5"
+                                onclick="closeObservatory('{{observatory}}')">
+                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"
+                                    class="w-1/2 h-1/2 mx-auto">
+                                    <path fill-rule="evenodd"
+                                        d="M12 2.25c-5.385 0-9.75 4.365-9.75 9.75s4.365 9.75 9.75 9.75 9.75-4.365 9.75-9.75S17.385 2.25 12 2.25zm-.53 14.03a.75.75 0 001.06 0l3-3a.75.75 0 10-1.06-1.06l-1.72 1.72V8.25a.75.75 0 00-1.5 0v5.69l-1.72-1.72a.75.75 0 00-1.06 1.06l3 3z"
+                                        clip-rule="evenodd" />
+                                </svg>
+                                <span>Close observatory</span>
+                            </button>
+
+                            {# <button
+                                class="col-span-2 text-white text-sm font-medium rounded-full aspect-square bg-red-700 hover:bg-red-600 px-5 py-2.5 m-10"
+                                onclick="interrupt('{{observatory}}')">
+                                ABORT
+                            </button> #}
+                        </div>
+                    </div>
+
+                    {% endif %}
+                </div>
                 {% endfor %}
             </div>
         </div>
@@ -206,7 +256,7 @@
 
 
     <script>
-        particlesJS.load('particles-js', '/js/particlesjs-config.json', function() {
+        particlesJS.load('particles-js', '/js/particlesjs-config.json', function () {
             console.log('callback - particles.js config loaded');
         });
 
@@ -251,20 +301,20 @@
                 return '<span class="' + cls + '">' + match + '</span>';
             });
         }
-   
+
         function navClick(element) {
             // element: the navigation element that was clicked
 
             // remove underline from other elements
             {% for nav in navigation %}
-                document.getElementById("{{nav | lower}}-" + element.id.split("-")[1]).classList.remove("underline")
+            document.getElementById("{{nav | lower}}-" + element.id.split("-")[1]).classList.remove("underline")
             {% endfor %}
             // underline the clicked element
             document.getElementById(element.id).classList.add("underline")
 
             // hide all content
             {% for nav in navigation %}
-                document.getElementById("{{nav | lower}}-content-" + element.id.split("-")[1]).classList.add("hidden")
+            document.getElementById("{{nav | lower}}-content-" + element.id.split("-")[1]).classList.add("hidden")
             {% endfor %}
 
             // show the content for the clicked element
@@ -278,10 +328,10 @@
                 div.scrollTop = 0;
             }
 
-            
+
         }
 
-        function updateTable(tableId, data, headers, thead_display=true, right_align=true) {
+        function updateTable(tableId, data, headers, thead_display = true, right_align = true) {
             // tableId: id of the table to update
             // data: array of objects containing the data to be displayed
             // headers: object containing the headers for the table
@@ -375,29 +425,29 @@
                         }
                     }
                 }
-                
+
             }
             row.classList.remove("border-b");
             row.classList.remove("border-b-slate-500");
 
         }
-     
+
         function updateSchedule(observatory) {
 
             fetch('/api/schedule/' + observatory)
                 .then(response => response.json())
                 .then(data => {
-                    updateTable("schedule-table-0-" + observatory, data, {"action_type": "action", "start_HHMMSS": "start", "end_HHMMSS": "end"}, true, false);
+                    updateTable("schedule-table-0-" + observatory, data, { "action_type": "action", "start_HHMMSS": "start", "end_HHMMSS": "end" }, true, false);
                 });
 
         }
 
-        function updateWeatherChart(observatory, update=false) {
+        function updateWeatherChart(observatory, update = false) {
 
             fetch('/api/db/polling/' + observatory + '/ObservingConditions')
                 .then(response => response.json())
                 .then(data => {
-                    
+
                     let graphData = [];
                     let titles = {};
                     let yaxisRanges = {};
@@ -405,18 +455,18 @@
                     Object.keys(data).forEach((deviceCommand) => {
 
                         let trace = {
-                                x: Object.keys(data[deviceCommand]),
-                                y: Object.values(data[deviceCommand]),
-                                type: 'scatter',
-                                mode: 'markers',
-                                showlegend: false,
-                                name: deviceCommand,
-                                yaxis: 'y' + (Object.keys(data).indexOf(deviceCommand) + 1),
-                            };
+                            x: Object.keys(data[deviceCommand]),
+                            y: Object.values(data[deviceCommand]),
+                            type: 'scatter',
+                            mode: 'markers',
+                            showlegend: false,
+                            name: deviceCommand,
+                            yaxis: 'y' + (Object.keys(data).indexOf(deviceCommand) + 1),
+                        };
 
                         titles['yaxis' + (Object.keys(data).indexOf(deviceCommand) + 1)] = {
-                                title: deviceCommand,
-                            }
+                            title: deviceCommand,
+                        }
 
                         // Set yaxis limits based on deviceCommand
                         yaxisRanges[deviceCommand] = {
@@ -445,7 +495,7 @@
                         trace.yaxis.range = [yaxisRanges[deviceCommand].min, yaxisRanges[deviceCommand].max];
 
                         graphData.push(trace);
-                    
+
                     });
 
                     let elp = document.getElementById(observatory);
@@ -453,10 +503,10 @@
 
                     let layout_0 = {
                         grid: {
-                            rows:  Object.keys(data).length,
+                            rows: Object.keys(data).length,
                             columns: 1,
                         },
-                        margin: {l: 50, r: 15, b: 70, t: 20},
+                        margin: { l: 50, r: 15, b: 70, t: 20 },
                         paper_bgcolor: 'rgba(0,0,0,0)', // sets background color
                         plot_bgcolor: 'rgb(36,38,41)', // sets plot area color
                         font: {
@@ -481,7 +531,7 @@
                         displayModeBar: false,
                     };
 
-                    if (update == false ){
+                    if (update == false) {
                         Plotly.newPlot('weather-chart-' + observatory, graphData, layout, config);
                     } else {
                         Plotly.react('weather-chart-' + observatory, graphData, layout, config);
@@ -496,7 +546,7 @@
                 fetch('/api/open/' + observatory)
                     .then(response => response.json())
                     .then(data => {
-                            console.log(data);
+                        console.log(data);
                     });
             }
         }
@@ -506,7 +556,7 @@
                 fetch('/api/close/' + observatory)
                     .then(response => response.json())
                     .then(data => {
-                            console.log(data);
+                        console.log(data);
                     });
             }
         }
@@ -516,17 +566,17 @@
                 fetch('/api/startschedule/' + observatory)
                     .then(response => response.json())
                     .then(data => {
-                            console.log(data);
+                        console.log(data);
                     });
             }
         }
-        
+
         function stopSchedule(observatory) {
             if (confirm("Are you sure you want to stop the schedule?")) {
                 fetch('/api/stopschedule/' + observatory)
                     .then(response => response.json())
                     .then(data => {
-                            console.log(data);
+                        console.log(data);
                     });
             }
         }
@@ -536,17 +586,17 @@
                 fetch('/api/startwatchdog/' + observatory)
                     .then(response => response.json())
                     .then(data => {
-                            console.log(data);
+                        console.log(data);
                     });
             }
         }
-        
+
         function stopWatchdog(observatory) {
             if (confirm("Are you sure you want to stop the watchdog?")) {
                 fetch('/api/stopwatchdog/' + observatory)
                     .then(response => response.json())
                     .then(data => {
-                            console.log(data);
+                        console.log(data);
                     });
             }
         }
@@ -556,7 +606,7 @@
                 fetch('/api/interrupt/' + observatory)
                     .then(response => response.json())
                     .then(data => {
-                            console.log(data);
+                        console.log(data);
                     });
             }
         }
@@ -564,23 +614,23 @@
         function connectWebSocket(url, observatory, type) {
             let socket = new WebSocket(url);
 
-            socket.onopen = function() {
+            socket.onopen = function () {
                 console.log('WebSocket connection established.');
                 // Perform any necessary actions upon successful connection.
             };
 
-            socket.onclose = function(event) {
+            socket.onclose = function (event) {
                 console.log('WebSocket connection closed:', event);
                 // Handle the closure, initiate reconnection logic.
                 reconnectWebSocket(url, observatory, type);
             };
 
-            socket.onmessage = function(event) {
+            socket.onmessage = function (event) {
                 onMessageFunc(observatory, type, event);
                 // Process incoming messages.
             };
 
-            socket.onerror = function(error) {
+            socket.onerror = function (error) {
                 console.log('WebSocket error:', error);
                 // Handle any errors that occur.
                 alert('WebSocket error see browser console');
@@ -591,7 +641,7 @@
 
         function reconnectWebSocket(url, observatory, type) {
             // Wait for a certain time before attempting reconnection.
-            setTimeout(function() {
+            setTimeout(function () {
                 connectWebSocket(url, observatory, type);
             }, 3000); // You can adjust the time interval between reconnection attempts.
         }
@@ -599,26 +649,26 @@
         function onMessageFunc(observatory, type, event) {
             let message = JSON.parse(event.data);
             if (type == 'summary') {
-                updateTable("summary-table-0-" + observatory, message['table0'], {"item": "item", "status": "status", "last_update": "last update"});
+                updateTable("summary-table-0-" + observatory, message['table0'], { "item": "item", "status": "status", "last_update": "last update" });
 
                 // update title color if error found in astra
-                if (message['table1'][0]['item'] == "error free"){
+                if (message['table1'][0]['item'] == "error free") {
                     if (message['table1'][0]['value'] == false) {
                         document.getElementById("title-" + observatory).classList.add('text-red-700');
                     } else {
                         document.getElementById("title-" + observatory).classList.remove('text-red-700');
                     }
                 }
-                
+
                 // update utc time
-                if (message['table1'][1]['item'] == "utc time"){
+                if (message['table1'][1]['item'] == "utc time") {
 
                     document.getElementById("time-" + observatory).innerText = message['table1'][1]['value'].substring(10);
 
                 }
 
                 // update watchdog icon
-                if (message['table1'][2]['item'] == "watchdog"){
+                if (message['table1'][2]['item'] == "watchdog") {
 
                     let watchdog_icon = document.getElementById("watchdog-icon-" + observatory);
                     // let watchdog_control = document.getElementById("watchdog-control-" + observatory);
@@ -648,38 +698,38 @@
                 }
 
                 // update schedule icon
-                if (message['table1'][3]['item'] == "schedule"){
+                if (message['table1'][3]['item'] == "schedule") {
 
                     let schedule_icon = document.getElementById("schedule-icon-" + observatory);
-                    let schedule_control = document.getElementById("schedule-control-" + observatory); 
+                    let schedule_control = document.getElementById("schedule-control-" + observatory);
 
                     if (message['table1'][3]['value'] == "stopped") {
                         schedule_icon.classList.add('text-gray-500');
                         schedule_icon.classList.add('hover:text-gray-400')
                         schedule_icon.classList.remove('text-green-500');
                         schedule_icon.classList.remove('hover:text-green-400');
-                        schedule_icon.onclick = function() { startSchedule(observatory); };
+                        schedule_icon.onclick = function () { startSchedule(observatory); };
 
                         schedule_control.classList.add('text-gray-500');
                         schedule_control.classList.remove('text-green-500');
-                        schedule_control.onclick = function() { startSchedule(observatory); };
+                        schedule_control.onclick = function () { startSchedule(observatory); };
 
                     } else {
                         schedule_icon.classList.remove('text-gray-500');
                         schedule_icon.classList.remove('hover:text-gray-400')
                         schedule_icon.classList.add('text-green-500');
                         schedule_icon.classList.add('hover:text-green-400');
-                        schedule_icon.onclick = function() { stopSchedule(observatory); };
+                        schedule_icon.onclick = function () { stopSchedule(observatory); };
 
                         schedule_control.classList.remove('text-gray-500');
                         schedule_control.classList.add('text-green-500');
-                        schedule_control.onclick = function() { stopSchedule(observatory); };
+                        schedule_control.onclick = function () { stopSchedule(observatory); };
                     }
-                    
+
                 }
 
                 // update weather safe icon
-                if (message['table1'][4]['item'] == "weather safe"){
+                if (message['table1'][4]['item'] == "weather safe") {
 
                     let weather_safe_icon = document.getElementById("weather-safe-icon-" + observatory);
 
@@ -720,16 +770,16 @@
                 }
 
                 // make summary table 1 smaller if error free
-                if (message['table1'][0]['item'] == "error free"){
+                if (message['table1'][0]['item'] == "error free") {
                     if (message['table1'][0]['value'] == true) {
                         // remove error free status
                         message['table1'].splice(0, 1);
                         // remove weather safe, interrupt, error source
                         message['table1'].splice(3, 3);
-                    } 
+                    }
                 }
 
-                updateTable("summary-table-1-" + observatory, message['table1'], {"item": "item", "value": "value"}, false);
+                updateTable("summary-table-1-" + observatory, message['table1'], { "item": "item", "value": "value" }, false);
 
                 // update last image
                 let lastImageDiv = document.getElementById("summary-last-image-parent-" + observatory);
@@ -743,22 +793,22 @@
                 } else {
                     document.getElementById("summary-last-image-" + observatory).classList.add('hidden');
                     document.getElementById("summary-last-image-placeholder-" + observatory).classList.remove('hidden');
-                    document.getElementById("summary-last-image-text-" + observatory).innerHTML = syntaxHighlight({'image': 'no image found'});
+                    document.getElementById("summary-last-image-text-" + observatory).innerHTML = syntaxHighlight({ 'image': 'no image found' });
                 }
 
-                
+
             } else if (type == 'log') {
                 let logDiv = document.getElementById("log-0-" + observatory);
                 let fragment = document.createDocumentFragment();
 
                 let log = message['log'];
-                log.forEach(function(item, index, array) {
+                log.forEach(function (item, index, array) {
                     let logMessage = document.createElement('div'); // create a p tag
                     logMessage.classList.add('px-3'); // add a class
                     logMessage.classList.add('py-1.5'); // add a class
                     logMessage.classList.add('grid'); // add a class
                     logMessage.classList.add('grid-cols-3'); // add a class
-                    
+
                     if (item['level'] == 'warning') {
                         logMessage.classList.add('text-yellow-500'); // add a class
                     } else if (item['level'] == 'error') {
@@ -784,38 +834,39 @@
             }
         }
 
-   
+
         {% for observatory in observatories %}
 
-            // connect to websockets
-            if (window.location.protocol === "https:") {
-                console.log("Website accessed via HTTPS");
-                connectWebSocket('wss://' + window.location.host + '/ws/' + '{{observatory}}', '{{observatory}}', 'summary');
-                connectWebSocket('wss://' + window.location.host + '/ws/log/' + '{{observatory}}', '{{observatory}}', 'log');
-            } else {
-                console.log("Website accessed via HTTP");
-                connectWebSocket('ws://' + window.location.host + '/ws/' + '{{observatory}}', '{{observatory}}', 'summary');
-                connectWebSocket('ws://' + window.location.host + '/ws/log/' + '{{observatory}}', '{{observatory}}', 'log');
-            }
+        // connect to websockets
+        if (window.location.protocol === "https:") {
+            console.log("Website accessed via HTTPS");
+            connectWebSocket('wss://' + window.location.host + '/ws/' + '{{observatory}}', '{{observatory}}', 'summary');
+            connectWebSocket('wss://' + window.location.host + '/ws/log/' + '{{observatory}}', '{{observatory}}', 'log');
+        } else {
+            console.log("Website accessed via HTTP");
+            connectWebSocket('ws://' + window.location.host + '/ws/' + '{{observatory}}', '{{observatory}}', 'summary');
+            connectWebSocket('ws://' + window.location.host + '/ws/log/' + '{{observatory}}', '{{observatory}}', 'log');
+        }
 
-            scheduleLoadTime['{{observatory}}'] = new Date().getTime()/1000;
+        scheduleLoadTime['{{observatory}}'] = new Date().getTime() / 1000;
 
-            // update schedule table
-            updateSchedule('{{observatory}}');
+        // update schedule table
+        updateSchedule('{{observatory}}');
 
-            // update weather chart
-            updateWeatherChart('{{observatory}}', update=false);
+        // update weather chart
+        updateWeatherChart('{{observatory}}', update = false);
 
-            // todo: move to websocket?
-            setInterval(function() {
-                updateWeatherChart('{{observatory}}', update=true);
-            }, 60000);
-            
+        // todo: move to websocket?
+        setInterval(function () {
+            updateWeatherChart('{{observatory}}', update = true);
+        }, 60000);
+
         {% endfor %}
 
 
-        
+
     </script>
 
 </body>
+
 </html>
