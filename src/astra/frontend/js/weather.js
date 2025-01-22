@@ -104,8 +104,6 @@ function plotWeather(data, observatory, update) {
 
 
     const latest_values = data['latest'];
-    const start_datetime = weather_data[0].datetime;
-    const end_datetime = new Date().getTime();
 
     weather_parameters.forEach((parameter) => {
         // find min and max values for each parameter
@@ -402,13 +400,17 @@ function plotWeather(data, observatory, update) {
     // plot wind direction
     if (weather_parameters.includes("WindDirection")) {
         console.log("WindDirection found in the weather data");
+
+        const start_datetime = new Date(weather_data[0].datetime + 'Z').getTime();
+        const end_datetime = new Date().getTime();
+
         let wind_direction_data = Array.from(
             { length: weather_data.length },
             (_, i) => {
                 const date = weather_data[i].datetime;
-                const date_parsed = new Date(date);
+                const date_parsed = new Date(weather_data[i].datetime + 'Z').getTime();
                 const radius =
-                    (date - start_datetime) / (end_datetime - start_datetime);
+                    (date_parsed - start_datetime) / (end_datetime - start_datetime);
 
                 const angle = weather_data[i].WindDirection;
 
@@ -420,6 +422,7 @@ function plotWeather(data, observatory, update) {
                 return { angle, radius, date, date_parsed, speed, xs, ys };
             }
         );
+        console.log("WindDirection data: ", wind_direction_data);
 
         if (weather_safety_limits["WindSpeed"]["lower"] === null) {
             weather_safety_limits["WindSpeed"]["lower"] = 0;
@@ -492,7 +495,7 @@ function plotWeather(data, observatory, update) {
                     x: "x",
                     y: "y",
                     text: (d) =>
-                        `-${(end_datetime - start_datetime) / (2 * 60 * 60 * 1000)}h`,
+                        `-${((end_datetime - start_datetime) / (2 * 60 * 60 * 1000)).toFixed(0)}h`,
                     dy: 4,
                     lineAnchor: "top",
                     fontStyle: "italic",
@@ -533,18 +536,6 @@ function plotWeather(data, observatory, update) {
                         }
                     );
                 }),
-                // Plot.ruleX(wind_direction_data,
-                //         Plot.pointer({
-                //             x: "xs",
-                //             py: "ys",
-                //             stroke: "red"
-                //         })),
-                // Plot.ruleY(wind_direction_data,
-                //     Plot.pointer({
-                //         px: "xs",
-                //         y: "ys",
-                //         stroke: "red"
-                //     })),
                 Plot.dot(
                     wind_direction_data,
                     Plot.pointer({
@@ -581,14 +572,15 @@ function plotWeather(data, observatory, update) {
         });
 
         // const plot = Plot.plot(baseConfig);
+        const plotContainer = document.getElementById(`weather-chart-${observatory}`);
         const existingPlotContainer = document.getElementById(`plot-WindDirection-${observatory}`);
         if (update && existingPlotContainer) {
             existingPlotContainer.innerHTML = '';
-            existingPlotContainer.appendChild(plot);
+            existingPlotContainer.appendChild(plot_winddir);
         } else {
             const newPlotContainer = document.createElement("div");
             newPlotContainer.id = `plot-WindDirection-${observatory}`;
-            newPlotContainer.appendChild(plot);
+            newPlotContainer.appendChild(plot_winddir);
             plotContainer.appendChild(newPlotContainer);
         }
     } else {
