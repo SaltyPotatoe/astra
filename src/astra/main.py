@@ -242,9 +242,13 @@ async def polling(observatory: str, device_type: str):
     df = df.sort_index()
     df = df.apply(pd.to_numeric, errors="coerce")
 
+    latest = {}
+    for col in df.columns:
+        latest[col] = df[col].dropna().iloc[-1]
+
     # group by 60 seconds
-    df = df.groupby(pd.Grouper(freq="60s")).mean()
-    df = df.dropna()
+    df_groupby = df.groupby(pd.Grouper(freq="60s")).mean()
+    df_groupby = df_groupby.dropna()
 
     # safety limits, TODO: make this nicer
     obs = OBSERVATORIES[observatory]
@@ -270,8 +274,9 @@ async def polling(observatory: str, device_type: str):
         }
 
     return {
-        "data": df.reset_index().to_dict(orient="records"),
+        "data": df_groupby.reset_index().to_dict(orient="records"),
         "safety_limits": safety_limits,
+        "latest": latest,
     }
 
 

@@ -463,16 +463,13 @@
 
         }
 
-        function updateWeatherChart(observatory) {
-
-            // clear previous chart
-            document.getElementById("weather-chart-" + observatory).innerHTML = "";
+        function updateWeatherChart(observatory, update = false) {
 
             fetch('/api/db/polling/' + observatory + '/ObservingConditions')
                 .then(response => response.json())
                 .then(data => {
                     console.log("running updateWeatherChart")
-                    plotWeather(data, observatory)
+                    plotWeather(data, observatory, update);
                 });
 
         }
@@ -520,26 +517,6 @@
         function startWatchdog(observatory) {
             if (confirm("Are you sure you want to start the watchdog?")) {
                 fetch('/api/startwatchdog/' + observatory)
-                    .then(response => response.json())
-                    .then(data => {
-                        console.log(data);
-                    });
-            }
-        }
-
-        function stopWatchdog(observatory) {
-            if (confirm("Are you sure you want to stop the watchdog?")) {
-                fetch('/api/stopwatchdog/' + observatory)
-                    .then(response => response.json())
-                    .then(data => {
-                        console.log(data);
-                    });
-            }
-        }
-
-        function interrupt(observatory) {
-            if (confirm("Are you sure you want to abort current actions?")) {
-                fetch('/api/interrupt/' + observatory)
                     .then(response => response.json())
                     .then(data => {
                         console.log(data);
@@ -790,12 +767,12 @@
         updateSchedule('{{observatory}}');
 
         // update weather chart
-        updateWeatherChart('{{observatory}}');
+        updateWeatherChart('{{observatory}}', update = false);
 
         // todo: move to websocket?
         setInterval(function () {
-            updateWeatherChart('{{observatory}}');
-        }, 60000);
+            updateWeatherChart('{{observatory}}', update = true);
+        }, 30000);
 
         {% endfor %}
 

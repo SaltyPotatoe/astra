@@ -75,7 +75,7 @@ function addUnits(parameter, weather_safety_limits) {
     }
 }
 
-function plotWeather(data, observatory) {
+function plotWeather(data, observatory, update) {
 
     console.log("Plotting weather data for ", observatory);
 
@@ -84,7 +84,7 @@ function plotWeather(data, observatory) {
 
     const width = document.getElementById(`content-${observatory}`).clientWidth;
     const fixed_width = 320;
-    const height = Math.max(width, fixed_width) * 0.3;
+    const height = Math.max(width, fixed_width) * 0.4;
     const percent_to_show = 10;
     const weather_parameters = Object.keys(weather_data[0]);
 
@@ -103,7 +103,7 @@ function plotWeather(data, observatory) {
     });
 
 
-    const latest_values = weather_data[weather_data.length - 1];
+    const latest_values = data['latest'];
     const start_datetime = weather_data[0].datetime;
     const end_datetime = new Date().getTime();
 
@@ -376,11 +376,16 @@ function plotWeather(data, observatory) {
             }
 
             const plot = Plot.plot(baseConfig);
-            const newPlotContainer = document.createElement("div");
-            // add id to the plot container
-            newPlotContainer.id = `plot-${parameter}-${observatory}`;
-            newPlotContainer.appendChild(plot);
-            plotContainer.appendChild(newPlotContainer);
+            const existingPlotContainer = document.getElementById(`plot-${parameter}-${observatory}`);
+            if (update && existingPlotContainer) {
+                existingPlotContainer.innerHTML = '';
+                existingPlotContainer.appendChild(plot);
+            } else {
+                const newPlotContainer = document.createElement("div");
+                newPlotContainer.id = `plot-${parameter}-${observatory}`;
+                newPlotContainer.appendChild(plot);
+                plotContainer.appendChild(newPlotContainer);
+            }
         });
     };
 
@@ -575,9 +580,17 @@ function plotWeather(data, observatory) {
             ],
         });
 
-        // Append the wind direction plot to the document body
-        plot_winddir.id = `plot-WindDirection-${observatory}`;
-        document.getElementById(`weather-chart-${observatory}`).appendChild(plot_winddir);
+        // const plot = Plot.plot(baseConfig);
+        const existingPlotContainer = document.getElementById(`plot-WindDirection-${observatory}`);
+        if (update && existingPlotContainer) {
+            existingPlotContainer.innerHTML = '';
+            existingPlotContainer.appendChild(plot);
+        } else {
+            const newPlotContainer = document.createElement("div");
+            newPlotContainer.id = `plot-WindDirection-${observatory}`;
+            newPlotContainer.appendChild(plot);
+            plotContainer.appendChild(newPlotContainer);
+        }
     } else {
         console.log("WindDirection not found in the weather data");
     }
