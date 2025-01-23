@@ -226,9 +226,9 @@ async def schedule(observatory: str):
 
 
 @app.get("/api/db/polling/{observatory}/{device_type}")
-async def polling(observatory: str, device_type: str):
+async def polling(observatory: str, device_type: str, day: float = 1):
     db = observatory_db(observatory)
-    q = f"""SELECT * FROM polling WHERE device_type = '{device_type}' AND datetime > datetime('now', '-1 day')"""
+    q = f"""SELECT * FROM polling WHERE device_type = '{device_type}' AND datetime > datetime('now', '-{day} day')"""
 
     df = pd.read_sql_query(q, db)
 
@@ -389,319 +389,329 @@ async def websocket_endpoint(websocket: WebSocket, observatory: str):
             {"item": "time to safe", "value": f"{obs.time_to_safe:.2f} mins"},
         ]
 
-        if "Telescope" in obs.devices:
-            # we want to know if slewing or tracking
-            device_type = "Telescope"
-            for device_name in polled_list[device_type].keys():
-                polled = polled_list[device_type][device_name]
+        try:
+            if "Telescope" in obs.devices:
+                # we want to know if slewing or tracking
+                device_type = "Telescope"
+                for device_name in polled_list[device_type].keys():
+                    polled = polled_list[device_type][device_name]
 
-                tracking = polled["Tracking"]["value"]
-                dt_tracking = polled["Tracking"]["datetime"]
-                slewing = polled["Slewing"]["value"]
-                dt_slewing = polled["Slewing"]["datetime"]
+                    tracking = polled["Tracking"]["value"]
+                    dt_tracking = polled["Tracking"]["datetime"]
+                    slewing = polled["Slewing"]["value"]
+                    dt_slewing = polled["Slewing"]["datetime"]
 
-                status = "slewing" if slewing else "tracking" if tracking else "stopped"
-                dt = dt_tracking if tracking else dt_slewing if slewing else dt_tracking
-
-                try:
-                    polled["RightAscension"]["value"] = polled["RightAscension"][
-                        "value"
-                    ] * (
-                        360 / 24
-                    )  # convert to degrees
-                except:
-                    pass
-
-                last_update = (dt_now - dt).total_seconds()
-                last_update = last_update if last_update > 0 else 0
-
-                valid = None
-                # convert datetime to string and check if polled values are valid
-                for key in polled:
-                    polled[key]["datetime"] = polled[key]["datetime"].strftime(
-                        "%Y-%m-%d %H:%M:%S"
+                    status = (
+                        "slewing" if slewing else "tracking" if tracking else "stopped"
                     )
-                    if polled[key]["value"] != "null" and valid is not False:
-                        valid = True
-                    else:
-                        valid = False
-
-                table0.append(
-                    {
-                        "item": device_type,
-                        "name": device_name,
-                        "status": status,
-                        "valid": valid,
-                        "last_update": f"{last_update:.0f} s ago",
-                        "polled": polled,
-                    }
-                )
-
-                table0.append(
-                    {
-                        "item": "guider",
-                        "name": f"{device_name}'s guider",
-                        "status": obs.guider[device_name].running,
-                        "valid": valid,
-                        "last_update": "0 s ago",
-                    }
-                )
-
-        if "Dome" in obs.devices:
-            # we want to know if dome open or closed
-            device_type = "Dome"
-            for device_name in polled_list[device_type].keys():
-                polled = polled_list[device_type][device_name]
-
-                shutter_status = polled["ShutterStatus"]["value"]
-
-                if shutter_status == 0:
-                    status = "open"
-                elif shutter_status == 1:
-                    status = "closed"
-                elif shutter_status == 2:
-                    status = "opening"
-                elif shutter_status == 3:
-                    status = "closing"
-                elif shutter_status == 4:
-                    status = "error"
-                else:
-                    status = "unknown"
-
-                dt = polled["ShutterStatus"]["datetime"]
-
-                last_update = (dt_now - dt).total_seconds()
-                last_update = last_update if last_update > 0 else 0
-
-                valid = None
-                # convert datetime to string and check if polled values are valid
-                for key in polled:
-                    polled[key]["datetime"] = polled[key]["datetime"].strftime(
-                        "%Y-%m-%d %H:%M:%S"
+                    dt = (
+                        dt_tracking
+                        if tracking
+                        else dt_slewing if slewing else dt_tracking
                     )
-                    if polled[key]["value"] != "null" and valid is not False:
-                        valid = True
-                    else:
-                        valid = False
 
-                table0.append(
-                    {
-                        "item": device_type,
-                        "name": device_name,
-                        "status": status,
-                        "valid": valid,
-                        "last_update": f"{last_update:.0f} s ago",
-                        "polled": polled,
-                    }
-                )
-
-        if "FilterWheel" in obs.devices:
-            # we want to know name of filter
-            device_type = "FilterWheel"
-            for device_name in polled_list[device_type].keys():
-                polled = polled_list[device_type][device_name]
-
-                pos = polled["Position"]["value"]
-
-                if pos == -1:
-                    status = "moving"
-                else:
                     try:
-                        status = FWS[observatory][device_name][pos]
+                        polled["RightAscension"]["value"] = polled["RightAscension"][
+                            "value"
+                        ] * (
+                            360 / 24
+                        )  # convert to degrees
                     except:
-                        print(
-                            f"FilterWheel {device_name} position {pos} not found in fws dict",
-                            FWS,
+                        pass
+
+                    last_update = (dt_now - dt).total_seconds()
+                    last_update = last_update if last_update > 0 else 0
+
+                    valid = None
+                    # convert datetime to string and check if polled values are valid
+                    for key in polled:
+                        polled[key]["datetime"] = polled[key]["datetime"].strftime(
+                            "%Y-%m-%d %H:%M:%S"
                         )
+                        if polled[key]["value"] != "null" and valid is not False:
+                            valid = True
+                        else:
+                            valid = False
+
+                    table0.append(
+                        {
+                            "item": device_type,
+                            "name": device_name,
+                            "status": status,
+                            "valid": valid,
+                            "last_update": f"{last_update:.0f} s ago",
+                            "polled": polled,
+                        }
+                    )
+
+                    table0.append(
+                        {
+                            "item": "guider",
+                            "name": f"{device_name}'s guider",
+                            "status": obs.guider[device_name].running,
+                            "valid": valid,
+                            "last_update": "0 s ago",
+                        }
+                    )
+
+            if "Dome" in obs.devices:
+                # we want to know if dome open or closed
+                device_type = "Dome"
+                for device_name in polled_list[device_type].keys():
+                    polled = polled_list[device_type][device_name]
+
+                    shutter_status = polled["ShutterStatus"]["value"]
+
+                    if shutter_status == 0:
+                        status = "open"
+                    elif shutter_status == 1:
+                        status = "closed"
+                    elif shutter_status == 2:
+                        status = "opening"
+                    elif shutter_status == 3:
+                        status = "closing"
+                    elif shutter_status == 4:
+                        status = "error"
+                    else:
                         status = "unknown"
 
-                dt = polled["Position"]["datetime"]
+                    dt = polled["ShutterStatus"]["datetime"]
 
-                last_update = (dt_now - dt).total_seconds()
-                last_update = last_update if last_update > 0 else 0
+                    last_update = (dt_now - dt).total_seconds()
+                    last_update = last_update if last_update > 0 else 0
 
-                valid = None
-                # convert datetime to string and check if polled values are valid
-                for key in polled:
-                    polled[key]["datetime"] = polled[key]["datetime"].strftime(
-                        "%Y-%m-%d %H:%M:%S"
+                    valid = None
+                    # convert datetime to string and check if polled values are valid
+                    for key in polled:
+                        polled[key]["datetime"] = polled[key]["datetime"].strftime(
+                            "%Y-%m-%d %H:%M:%S"
+                        )
+                        if polled[key]["value"] != "null" and valid is not False:
+                            valid = True
+                        else:
+                            valid = False
+
+                    table0.append(
+                        {
+                            "item": device_type,
+                            "name": device_name,
+                            "status": status,
+                            "valid": valid,
+                            "last_update": f"{last_update:.0f} s ago",
+                            "polled": polled,
+                        }
                     )
-                    if polled[key]["value"] != "null" and valid is not False:
+
+            if "FilterWheel" in obs.devices:
+                # we want to know name of filter
+                device_type = "FilterWheel"
+                for device_name in polled_list[device_type].keys():
+                    polled = polled_list[device_type][device_name]
+
+                    pos = polled["Position"]["value"]
+
+                    if pos == -1:
+                        status = "moving"
+                    else:
+                        try:
+                            status = FWS[observatory][device_name][pos]
+                        except:
+                            print(
+                                f"FilterWheel {device_name} position {pos} not found in fws dict",
+                                FWS,
+                            )
+                            status = "unknown"
+
+                    dt = polled["Position"]["datetime"]
+
+                    last_update = (dt_now - dt).total_seconds()
+                    last_update = last_update if last_update > 0 else 0
+
+                    valid = None
+                    # convert datetime to string and check if polled values are valid
+                    for key in polled:
+                        polled[key]["datetime"] = polled[key]["datetime"].strftime(
+                            "%Y-%m-%d %H:%M:%S"
+                        )
+                        if polled[key]["value"] != "null" and valid is not False:
+                            valid = True
+                        else:
+                            valid = False
+
+                    table0.append(
+                        {
+                            "item": device_type,
+                            "name": device_name,
+                            "status": status,
+                            "valid": valid,
+                            "last_update": f"{last_update:.0f} s ago",
+                            "polled": polled,
+                        }
+                    )
+
+            if "Camera" in obs.devices:
+                device_type = "Camera"
+                for device_name in polled_list[device_type].keys():
+                    polled = polled_list[device_type][device_name]
+
+                    camera_status = polled["CameraState"]["value"]
+
+                    if camera_status == 0:
+                        status = "idle"
+                    elif camera_status == 1:
+                        status = "waiting"
+                    elif camera_status == 2:
+                        status = "exposing"
+                    elif camera_status == 3:
+                        status = "reading"
+                    elif camera_status == 4:
+                        status = "download"
+                    elif camera_status == 5:
+                        status = "error"
+                    else:
+                        status = "unknown"
+
+                    status += f" ({polled['CCDTemperature']['value']:.2f} C)"
+
+                    dt = polled["CameraState"]["datetime"]
+
+                    last_update = (dt_now - dt).total_seconds()
+                    last_update = last_update if last_update > 0 else 0
+
+                    valid = None
+                    # convert datetime to string and check if polled values are valid
+                    for key in polled:
+                        polled[key]["datetime"] = polled[key]["datetime"].strftime(
+                            "%Y-%m-%d %H:%M:%S"
+                        )
+                        if polled[key]["value"] != "null" and valid is not False:
+                            valid = True
+                        else:
+                            valid = False
+
+                    table0.append(
+                        {
+                            "item": device_type,
+                            "name": device_name,
+                            "status": status,
+                            "valid": valid,
+                            "last_update": f"{last_update:.0f} s ago",
+                            "polled": polled,
+                        }
+                    )
+
+            if "Focuser" in obs.devices:
+                device_type = "Focuser"
+                for device_name in polled_list[device_type].keys():
+                    polled = polled_list[device_type][device_name]
+
+                    status = polled["Position"]["value"]
+
+                    dt = polled["Position"]["datetime"]
+
+                    last_update = (dt_now - dt).total_seconds()
+                    last_update = last_update if last_update > 0 else 0
+
+                    valid = None
+                    # convert datetime to string and check if polled values are valid
+                    for key in polled:
+                        polled[key]["datetime"] = polled[key]["datetime"].strftime(
+                            "%Y-%m-%d %H:%M:%S"
+                        )
+                        if polled[key]["value"] != "null" and valid is not False:
+                            valid = True
+                        else:
+                            valid = False
+
+                    table0.append(
+                        {
+                            "item": device_type,
+                            "name": device_name,
+                            "status": status,
+                            "valid": valid,
+                            "last_update": f"{last_update:.0f} s ago",
+                            "polled": polled,
+                        }
+                    )
+
+            if "ObservingConditions" in obs.devices:
+                device_type = "ObservingConditions"
+                for device_name in polled_list[device_type].keys():
+                    polled = polled_list[device_type][device_name]
+
+                    dt = polled["Temperature"]["datetime"]
+
+                    last_update = (dt_now - dt).total_seconds()
+                    last_update = last_update if last_update > 0 else 0
+
+                    valid = None
+                    status = None
+                    # convert datetime to string and check if polled values are valid
+                    for key in polled:
+                        polled[key]["datetime"] = polled[key]["datetime"].strftime(
+                            "%Y-%m-%d %H:%M:%S"
+                        )
+                        if polled[key]["value"] != "null" and valid is not False:
+                            valid = True
+                            status = "valid"
+                        else:
+                            valid = False
+                            status = "invalid"
+
+                    table0.append(
+                        {
+                            "item": device_type,
+                            "name": device_name,
+                            "status": status,
+                            "valid": valid,
+                            "last_update": f"{last_update:.0f} s ago",
+                            "polled": polled,
+                        }
+                    )
+
+            if "SafetyMonitor" in obs.devices:
+                device_type = "SafetyMonitor"
+                for device_name in polled_list[device_type].keys():
+                    polled = polled_list[device_type][device_name]
+
+                    safe = polled["IsSafe"]["value"]
+
+                    valid = None
+                    if safe is True:
+                        status = "safe"
                         valid = True
                     else:
+                        status = "unsafe"
                         valid = False
 
-                table0.append(
-                    {
-                        "item": device_type,
-                        "name": device_name,
-                        "status": status,
-                        "valid": valid,
-                        "last_update": f"{last_update:.0f} s ago",
-                        "polled": polled,
-                    }
-                )
+                    dt = polled["IsSafe"]["datetime"]
 
-        if "Camera" in obs.devices:
-            device_type = "Camera"
-            for device_name in polled_list[device_type].keys():
-                polled = polled_list[device_type][device_name]
+                    last_update = (dt_now - dt).total_seconds()
+                    last_update = last_update if last_update > 0 else 0
 
-                camera_status = polled["CameraState"]["value"]
+                    # convert datetime to string and check if polled values are valid
+                    for key in polled:
+                        polled[key]["datetime"] = polled[key]["datetime"].strftime(
+                            "%Y-%m-%d %H:%M:%S"
+                        )
+                        if polled[key]["value"] != "null" and valid is not False:
+                            valid = True
+                        else:
+                            valid = False
 
-                if camera_status == 0:
-                    status = "idle"
-                elif camera_status == 1:
-                    status = "waiting"
-                elif camera_status == 2:
-                    status = "exposing"
-                elif camera_status == 3:
-                    status = "reading"
-                elif camera_status == 4:
-                    status = "download"
-                elif camera_status == 5:
-                    status = "error"
-                else:
-                    status = "unknown"
-
-                status += f" ({polled['CCDTemperature']['value']:.2f} C)"
-
-                dt = polled["CameraState"]["datetime"]
-
-                last_update = (dt_now - dt).total_seconds()
-                last_update = last_update if last_update > 0 else 0
-
-                valid = None
-                # convert datetime to string and check if polled values are valid
-                for key in polled:
-                    polled[key]["datetime"] = polled[key]["datetime"].strftime(
-                        "%Y-%m-%d %H:%M:%S"
+                    table0.append(
+                        {
+                            "item": device_type,
+                            "name": device_name,
+                            "status": status,
+                            "valid": valid,
+                            "last_update": f"{last_update:.0f} s ago",
+                            "polled": polled,
+                        }
                     )
-                    if polled[key]["value"] != "null" and valid is not False:
-                        valid = True
-                    else:
-                        valid = False
 
-                table0.append(
-                    {
-                        "item": device_type,
-                        "name": device_name,
-                        "status": status,
-                        "valid": valid,
-                        "last_update": f"{last_update:.0f} s ago",
-                        "polled": polled,
-                    }
-                )
-
-        if "Focuser" in obs.devices:
-            device_type = "Focuser"
-            for device_name in polled_list[device_type].keys():
-                polled = polled_list[device_type][device_name]
-
-                status = polled["Position"]["value"]
-
-                dt = polled["Position"]["datetime"]
-
-                last_update = (dt_now - dt).total_seconds()
-                last_update = last_update if last_update > 0 else 0
-
-                valid = None
-                # convert datetime to string and check if polled values are valid
-                for key in polled:
-                    polled[key]["datetime"] = polled[key]["datetime"].strftime(
-                        "%Y-%m-%d %H:%M:%S"
-                    )
-                    if polled[key]["value"] != "null" and valid is not False:
-                        valid = True
-                    else:
-                        valid = False
-
-                table0.append(
-                    {
-                        "item": device_type,
-                        "name": device_name,
-                        "status": status,
-                        "valid": valid,
-                        "last_update": f"{last_update:.0f} s ago",
-                        "polled": polled,
-                    }
-                )
-
-        if "ObservingConditions" in obs.devices:
-            device_type = "ObservingConditions"
-            for device_name in polled_list[device_type].keys():
-                polled = polled_list[device_type][device_name]
-
-                dt = polled["Temperature"]["datetime"]
-
-                last_update = (dt_now - dt).total_seconds()
-                last_update = last_update if last_update > 0 else 0
-
-                valid = None
-                status = None
-                # convert datetime to string and check if polled values are valid
-                for key in polled:
-                    polled[key]["datetime"] = polled[key]["datetime"].strftime(
-                        "%Y-%m-%d %H:%M:%S"
-                    )
-                    if polled[key]["value"] != "null" and valid is not False:
-                        valid = True
-                        status = "valid"
-                    else:
-                        valid = False
-                        status = "invalid"
-
-                table0.append(
-                    {
-                        "item": device_type,
-                        "name": device_name,
-                        "status": status,
-                        "valid": valid,
-                        "last_update": f"{last_update:.0f} s ago",
-                        "polled": polled,
-                    }
-                )
-
-        if "SafetyMonitor" in obs.devices:
-            device_type = "SafetyMonitor"
-            for device_name in polled_list[device_type].keys():
-                polled = polled_list[device_type][device_name]
-
-                safe = polled["IsSafe"]["value"]
-
-                valid = None
-                if safe is True:
-                    status = "safe"
-                    valid = True
-                else:
-                    status = "unsafe"
-                    valid = False
-
-                dt = polled["IsSafe"]["datetime"]
-
-                last_update = (dt_now - dt).total_seconds()
-                last_update = last_update if last_update > 0 else 0
-
-                # convert datetime to string and check if polled values are valid
-                for key in polled:
-                    polled[key]["datetime"] = polled[key]["datetime"].strftime(
-                        "%Y-%m-%d %H:%M:%S"
-                    )
-                    if polled[key]["value"] != "null" and valid is not False:
-                        valid = True
-                    else:
-                        valid = False
-
-                table0.append(
-                    {
-                        "item": device_type,
-                        "name": device_name,
-                        "status": status,
-                        "valid": valid,
-                        "last_update": f"{last_update:.0f} s ago",
-                        "polled": polled,
-                    }
-                )
+        except Exception as e:
+            print(f"Error in websocket_endpoint: {e}")
 
         # if last_image_jpg is None:
         #     # use placeholder image

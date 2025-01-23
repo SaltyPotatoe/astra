@@ -310,7 +310,12 @@
                     if (/:$/.test(match)) {
                         cls = 'key';
                     } else {
-                        cls = 'string italic text-blue-300';
+                        cls = 'string';
+                        if (match == '"null"') {
+                            cls += ' text-red-500 font-extrabold';
+                        } else {
+                            cls += ' text-blue-300 italic';
+                        }
                     }
                 } else if (/true|false/.test(match)) {
                     cls = 'boolean italic';
@@ -495,7 +500,7 @@
         let mousePos = { x: 0, y: 0 };
         function updateWeatherChart(observatory, update = false) {
 
-            fetch('/api/db/polling/' + observatory + '/ObservingConditions')
+            fetch('/api/db/polling/' + observatory + '/ObservingConditions?day=1')
                 .then(response => response.json())
                 .then(data => {
                     console.log("running updateWeatherChart")
