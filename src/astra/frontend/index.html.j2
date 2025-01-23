@@ -492,6 +492,7 @@
 
         }
 
+        let mousePos = { x: 0, y: 0 };
         function updateWeatherChart(observatory, update = false) {
 
             fetch('/api/db/polling/' + observatory + '/ObservingConditions')
@@ -499,6 +500,46 @@
                 .then(data => {
                     console.log("running updateWeatherChart")
                     plotWeather(data, observatory, update, popup);
+                })
+                .then(() => {
+
+                    // for event listeners on all plots
+                    const plots = document.querySelectorAll('div[id^="plot-"]');
+
+                    plots.forEach((plot) => {
+                        // when user takes finger off the screen
+                        if (update == false) {
+                            plot.addEventListener("touchend", (event) => {
+                                // clear the tooltip -- needed for mobile UX
+                                const pointerleave = new PointerEvent("pointerleave", {
+                                    bubbles: true,
+                                    pointerType: "mouse",
+                                });
+                                event.target.dispatchEvent(pointerleave);
+                            });
+                            plot.addEventListener("pointermove", (event) => {
+
+                                // get the x and y position of the pointer
+                                const x = event.clientX;
+                                const y = event.clientY;
+                                mousePos = { x, y };
+
+                            });
+                        } else {
+                            // get child div of plot
+                            const plotDiv = plot.querySelector('svg');
+
+                            // simulate pointermove event to update tooltip
+                            const pointermove = new PointerEvent("pointermove", {
+                                bubbles: true,
+                                pointerType: "mouse",
+                                clientX: mousePos.x,
+                                clientY: mousePos.y,
+                            });
+                            plotDiv.dispatchEvent(pointermove);
+                        }
+                    });
+
                 });
 
         }
@@ -801,24 +842,9 @@
         // update weather chart
         setInterval(function () {
             updateWeatherChart('{{observatory}}', update = true);
-        }, 60000);
+        }, 10000);
 
         {% endfor %}
-
-        // for event listeners on all plots
-        const plots = document.querySelectorAll('svg[class^="plot-"]');
-
-        plots.forEach((plot) => {
-            // when user takes finger off the screen
-            plot.addEventListener("touchend", (event) => {
-                // clear the tooltip -- needed for mobile UX
-                const pointerleave = new PointerEvent("pointerleave", {
-                    bubbles: true,
-                    pointerType: "mouse",
-                });
-                event.target.dispatchEvent(pointerleave);
-            });
-        });
 
     </script>
 
