@@ -3,10 +3,6 @@
 // - show when night begins
 // - radial circle on touch for wind direction?
 // - shared tooltip?
-// - dynamic update of the plots
-// - format tables
-
-let refreshInterval;
 
 // Color palette for weather parameters
 function color_palette(parameter) {
