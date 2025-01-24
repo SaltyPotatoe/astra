@@ -799,8 +799,6 @@ class Observatory:
         longest_max_safe_duration = 0
         if "ObservingConditions" in self.config and "Dome" in self.config:
 
-            # check current weather or history?
-
             if "closing_limits" in self.config["ObservingConditions"][0]:
                 closing_limits = self.config["ObservingConditions"][0]["closing_limits"]
 
@@ -1053,6 +1051,42 @@ class Observatory:
         if self.speculoos:
             # SPECULOOS EDIT
             self.resume_polls(["Dome", "Telescope", "Focuser"])
+
+            # check if telescope(s) are ready
+            start_time = time.time()
+            if self.weather_safe and self.error_free:
+                for telescope_name in self.devices["Telescope"]:
+                    telescope = self.devices["Telescope"][telescope_name]
+
+                    r = telescope.get(
+                        "CommandString", Command="TELESCOPE.READY_STATE", Raw=True
+                    )
+
+                    while float(r):
+                        self.logger.info(f"Waiting for {telescope_name} to be ready")
+
+                        time.sleep(1)
+
+                        r = telescope.get(
+                            "CommandString", Command="TELESCOPE.READY_STATE", Raw=True
+                        )
+
+                        # timeout
+                        if time.time() - start_time > 120:
+                            self.error_source.append(
+                                {
+                                    "device_type": "Telescope",
+                                    "device_name": telescope_name,
+                                    "error": "Timeout waiting for telescope to be ready",
+                                }
+                            )
+                            self.logger.error(
+                                f"Timeout waiting for {telescope_name} to be ready"
+                            )
+                            break
+
+                        if float(r) == 1:
+                            self.logger.info(f"{telescope_name} is ready")
 
     def close_observatory(
         self, paired_devices: dict | None = None, error_sensitive: bool = True
