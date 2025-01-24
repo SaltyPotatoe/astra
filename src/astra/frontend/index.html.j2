@@ -173,23 +173,7 @@
 
                         <div id="log-0-{{ observatory }}-parent"
                             class="flex flex-row h-full w-full rounded-lg bg-gray-600/20 overflow-y-scroll overflow-x-clip">
-                            <div id="log-0-{{ observatory }}" class="text-left flex-grow">
-                            </div>
-                            <div class="relative h-full w-5">
-                                <div id="log-0-{{ observatory }}-colorbar"
-                                    class="absolute h-full w-full bg-gray-600/20">
-                                    <div class="absolute w-full h-1 bg-orange-500" style="top: 2.22%;"></div>
-                                    <div class="absolute w-full h-1 bg-orange-500" style="top: 15.97%;"></div>
-                                    <div class="absolute w-full h-1 bg-orange-500" style="top: 19.07%;"></div>
-                                    <div class="absolute w-full h-1 bg-red-500" style="top: 36.01%;"></div>
-                                    <div class="absolute w-full h-1 bg-orange-500" style="top: 52.31%;"></div>
-                                    <div class="absolute w-full h-1 bg-red-500" style="top: 62.56%;"></div>
-                                    <div class="absolute w-full h-1 bg-orange-500" style="top: 63.91%;"></div>
-                                    <div class="absolute w-full h-1 bg-red-500" style="top: 68.46%;"></div>
-                                    <div class="absolute w-full h-1 bg-orange-500" style="top: 73.16%;"></div>
-                                    <div class="absolute w-full h-1 bg-orange-500" style="top: 88.74%;"></div>
-                                </div>
-
+                            <div id="log-0-{{ observatory }}" class="text-left flex-grow text-sm">
                             </div>
                         </div>
 
@@ -789,7 +773,7 @@
                     // get height of the div that is visible
                     let visibleHeight = div.clientHeight;
 
-                    console.log("b", scrollPos, visibleHeight, scrollPos + visibleHeight, divHeight, scrollPos + visibleHeight - divHeight);
+                    // console.log("b", scrollPos, visibleHeight, scrollPos + visibleHeight, divHeight, scrollPos + visibleHeight - divHeight);
 
                     // if the div is scrolled to the bottom
                     if (scrollPos + visibleHeight + 100 >= divHeight && log.length > 0) {
@@ -844,18 +828,6 @@
 
 
         {% for observatory in observatories %}
-
-        document.addEventListener("DOMContentLoaded", () => {
-            const parent = document.getElementById("log-0-{{ observatory }}-parent");
-            const colorbar = document.getElementById("log-0-{{ observatory }}-colorbar");
-
-            parent.addEventListener("scroll", () => {
-                // get current scroll position
-                let scrollPos = parent.scrollTop;
-                //translate colorbar to match scroll position
-                colorbar.style.bottom = (-scrollPos) + "px";
-            });
-        });
 
         // connect to websockets
         if (window.location.protocol === "https:") {
