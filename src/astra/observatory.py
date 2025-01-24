@@ -1062,7 +1062,7 @@ class Observatory:
                         "CommandString", Command="TELESCOPE.READY_STATE", Raw=True
                     )
 
-                    while float(r):
+                    while float(r) != 1:
                         self.logger.info(f"Waiting for {telescope_name} to be ready")
 
                         time.sleep(1)
@@ -1087,6 +1087,17 @@ class Observatory:
 
                         if float(r) == 1:
                             self.logger.info(f"{telescope_name} is ready")
+                        elif float(r) < 0:
+                            self.error_source.append(
+                                {
+                                    "device_type": "Telescope",
+                                    "device_name": telescope_name,
+                                    "error": f"Issue with telescope getting ready, status: {r}",
+                                }
+                            )
+                            self.logger.error(
+                                f"Issue with telescope getting ready, status: {r}"
+                            )
 
     def close_observatory(
         self, paired_devices: dict | None = None, error_sensitive: bool = True
