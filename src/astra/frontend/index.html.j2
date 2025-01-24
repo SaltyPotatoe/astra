@@ -750,6 +750,9 @@
                     logMessage.classList.add('grid'); // add a class
                     logMessage.classList.add('grid-cols-3'); // add a class
 
+                    logMessage.id = "message-" + observatory;
+                    logMessage.setAttribute("data-level", item['level']);
+
                     if (item['level'] == 'warning') {
                         logMessage.classList.add('text-yellow-500'); // add a class
                     } else if (item['level'] == 'error') {
@@ -780,7 +783,7 @@
                         div.scrollTop = div.scrollHeight;
                     }
 
-                    if (scrollPos < 100) {
+                    if (scrollPos < 10) {
                         // get datetime of first log by getting title of first child
                         let firstLog = divChild.firstElementChild.firstElementChild.title;
 
@@ -796,6 +799,9 @@
                                     logMessage.classList.add('py-1.5'); // add a class
                                     logMessage.classList.add('grid'); // add a class
                                     logMessage.classList.add('grid-cols-3'); // add a class
+
+                                    logMessage.id = "message-" + observatory;
+                                    logMessage.setAttribute("data-level", item['level']);
 
                                     if (item['level'] == 'warning') {
                                         logMessage.classList.add('text-yellow-500'); // add a class

@@ -601,7 +601,7 @@ class Observatory:
 
                             # log message saying weather unsafe
                             if weather_log_warning is False:
-                                self.logger.warning("Weather unsafe")
+                                self.logger.warning("Weather unsafe from SafetyMonitor")
 
                             self.close_observatory()  # checks if already closed and closes if not
 
@@ -626,7 +626,9 @@ class Observatory:
 
                         # log message saying weather unsafe
                         if weather_log_warning is False:
-                            self.logger.warning("Weather unsafe")
+                            self.logger.warning(
+                                "Weather unsafe from internal safety monitor"
+                            )
 
                         self.close_observatory()  # checks if already closed and closes if not
 
@@ -706,7 +708,16 @@ class Observatory:
                         )
                         # TODO: Panic mode
                     elif len(device_names) == 1 and len(device_types) == 1:
-                        self.logger.warning(f"Device {device_names[0]} has errors.")
+                        self.logger.warning(
+                            f"Device {device_types[0]} {device_names[0]} has errors."
+                        )
+                        if self.speculoos:
+                            # if not dome or telescope, park
+                            if device_types[0] not in ["Dome", "Telescope"]:
+                                self.logger.warning(
+                                    f"Closing observatory due to error in {device_types[0]} {device_names[0]}"
+                                )
+                                self.close_observatory(error_sensitive=False)
                         # only one device has errors
                         # match device_types[0]:
                         #     case "SafetyMonitor":
