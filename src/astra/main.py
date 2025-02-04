@@ -20,13 +20,14 @@ from fastapi import FastAPI, Request, WebSocket
 from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
 from fastapi.templating import Jinja2Templates
 
-from astra import CONFIG
+from astra import Config
 from astra.observatory import Observatory
 
 # silence httpx logging
 logging.getLogger("httpx").setLevel(logging.WARNING)
 
 # global variables
+CONFIG = Config()
 FRONTEND_PATH = Path(__file__).parent / "frontend"
 OBSERVATORIES = {}
 WEBCAMFEEDS = {}
@@ -45,7 +46,7 @@ def load_observatories():
     global FWS
 
     config_files = glob(
-        str(CONFIG.paths.folder_observatory / "*_config.yml")
+        str(CONFIG.paths.observatory_config / "*_config.yml")
     )  # should we use CONFIG.config['observatory_name'] here instead?
 
     for config_filename in config_files:
@@ -67,7 +68,7 @@ def load_observatories():
 
 
 def observatory_db(name):
-    db = sqlite3.connect(CONFIG.paths.folder_log / f"{name}.db")
+    db = sqlite3.connect(CONFIG.paths.logs / f"{name}.db")
     return db
 
 
@@ -419,15 +420,15 @@ async def websocket_endpoint(websocket: WebSocket, observatory: str):
                     dt = (
                         dt_tracking
                         if tracking
-                        else dt_slewing if slewing else dt_tracking
+                        else dt_slewing
+                        if slewing
+                        else dt_tracking
                     )
 
                     try:
                         polled["RightAscension"]["value"] = polled["RightAscension"][
                             "value"
-                        ] * (
-                            360 / 24
-                        )  # convert to degrees
+                        ] * (360 / 24)  # convert to degrees
                     except:
                         pass
 
@@ -787,7 +788,7 @@ if __name__ == "__main__":
     logging.basicConfig(
         format="%(levelname)s,%(asctime)s.%(msecs)03d,%(process)d,%(name)s,(%(filename)s:%(lineno)d),%(message)s",
         datefmt="%Y-%m-%d %H:%M:%S",
-        filename=CONFIG.paths.file_log,
+        filename=CONFIG.paths.log_file,
         level=logging.DEBUG,
     )
     logging.Formatter.converter = time.gmtime

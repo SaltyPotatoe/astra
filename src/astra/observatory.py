@@ -16,11 +16,10 @@ import yaml
 from astropy.coordinates import EarthLocation, SkyCoord
 from astropy.io import fits
 from astropy.time import Time
-
 # https://github.com/dashawn888/sqlite3worker
 from sqlite3worker import Sqlite3Worker
 
-from astra import ASTRA_VER, CONFIG, utils
+from astra import ASTRA_VER, Config, utils
 from astra.alpaca_device_process import AlpacaDevice
 from astra.guiding import Guider
 from astra.image_handler import create_image_dir, save_image
@@ -29,6 +28,7 @@ from astra.schedule import process_schedule
 
 SQL3WLOGGER = logging.getLogger("sqlite3worker")
 SQL3WLOGGER.setLevel(logging.INFO)
+CONFIG = Config()
 
 # TODO (set 2024-07-20):
 # - move schedule things to schedule.py
@@ -83,7 +83,7 @@ class Observatory:
         # read observatory config files
         self.config = self.read_config(config_filename)
         self.fits_config = pd.read_csv(
-            CONFIG.paths.folder_observatory / f"{self.name}_fits_header_config.csv"
+            CONFIG.paths.observatory_config / f"{self.name}_fits_header_config.csv"
         )
 
         # runnning threads list
@@ -124,13 +124,11 @@ class Observatory:
         self.schedule_running = False
 
         # schedule paths
-        self.schedule_path = CONFIG.paths.folder_schedule / f"{self.name}.csv"
+        self.schedule_path = CONFIG.paths.schedules / f"{self.name}.csv"
         self.schedule_mtime = self.get_schedule_mtime()
 
         # load devices
-        self.monitor_action_queue = (
-            {}
-        )  # queue for monitoring/running actions per device_name
+        self.monitor_action_queue = {}  # queue for monitoring/running actions per device_name
         self.devices = self.load_devices()
         self.last_image = None
 
@@ -160,7 +158,7 @@ class Observatory:
             cursor (Sqlite3Worker): The cursor object for the newly created database.
         """
 
-        db_name = CONFIG.paths.folder_log / f"{self.name}.db"
+        db_name = CONFIG.paths.logs / f"{self.name}.db"
         cursor = Sqlite3Worker(db_name)
 
         db_command_0 = """CREATE TABLE IF NOT EXISTS polling (
@@ -208,10 +206,10 @@ class Observatory:
                 # TODO: action
 
             dt_str = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
-            db_path = CONFIG.paths.folder_log / f"{self.name}.db"
+            db_path = CONFIG.paths.logs / f"{self.name}.db"
 
             # create backup directory if not exists
-            archive_path = CONFIG.paths.folder_log / "archive"
+            archive_path = CONFIG.paths.logs / "archive"
             archive_path.mkdir(exist_ok=True)
 
             tables = ["polling", "log"]
@@ -226,7 +224,7 @@ class Observatory:
                 )
                 df.to_csv(
                     os.path.join(
-                        CONFIG.paths.folder_log,
+                        CONFIG.paths.logs,
                         "archive",
                         f"{self.name}_{table}_{dt_str}.csv",
                     ),
@@ -691,7 +689,7 @@ class Observatory:
 
                     # wait a bit to see if it's a multi-device error?
                     self.logger.info(
-                        f"Waiting 30 seconds to see if error is multi-device. Main watchdog thread exited."
+                        "Waiting 30 seconds to see if error is multi-device. Main watchdog thread exited."
                     )
                     time.sleep(30)
 
@@ -798,14 +796,12 @@ class Observatory:
         longest_time_to_safe = 0
         longest_max_safe_duration = 0
         if "ObservingConditions" in self.config and "Dome" in self.config:
-
             if "closing_limits" in self.config["ObservingConditions"][0]:
                 closing_limits = self.config["ObservingConditions"][0]["closing_limits"]
 
                 for parameter in closing_limits:
                     limits = closing_limits[parameter]
                     for limit in limits:
-
                         max_safe_duration = limit["max_safe_duration"]
                         lower_limit = limit.get("lower", None)
                         upper_limit = limit.get("upper", None)
@@ -860,7 +856,6 @@ class Observatory:
         )
 
     def check_devices_alive(self) -> bool:
-
         for device_type in self.devices:
             for device_name in self.devices[device_type]:
                 try:
@@ -1533,7 +1528,6 @@ class Observatory:
                 self.final_headers()
 
             else:
-
                 self.error_source.append(
                     {
                         "device_type": "Schedule",
@@ -1886,7 +1880,6 @@ class Observatory:
         exposure_end_time = time.time()
 
         while not camera.get("ImageReady"):
-
             if not self.check_conditions(row):
                 exposure_successful = False
                 break
@@ -1975,14 +1968,12 @@ class Observatory:
         guiding = False
 
         for i, exptime in enumerate(exptime_list):
-
             if not self.check_conditions(row):
                 break
 
             n_exposures = n_exposures_list[i]
 
             for exposure in range(n_exposures):
-
                 if "n" in action_value:
                     log_option = f"{exposure + 1}/{n_exposures}"
                 else:

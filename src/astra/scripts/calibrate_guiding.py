@@ -23,7 +23,9 @@ from donuts import Donuts
 from donuts.image import Image
 from scipy.ndimage import median_filter
 
-from astra import CONFIG
+from astra import Config
+
+CONFIG = Config()
 
 # pylint: disable=invalid-name
 # pylint: disable=redefined-outer-name
@@ -138,7 +140,7 @@ def save_image(
         str: The file path to the saved image.
 
     """
-    calibrate_guiding_path = CONFIG.paths.folder_images / "calibrate_guiding"
+    calibrate_guiding_path = CONFIG.paths.images / "calibrate_guiding"
 
     if not calibrate_guiding_path.exists():
         print("Creating directory: {}".format(calibrate_guiding_path))
@@ -267,7 +269,7 @@ def newFilename(direction, pulse_time, image_id):
     """
     filename = "step_{:03d}_d{}_{}ms.fits".format(image_id, direction, pulse_time)
 
-    filepath = CONFIG.paths.folder_images / "calibrate_guiding" / filename
+    filepath = CONFIG.paths.images / "calibrate_guiding" / filename
 
     image_id += 1
     return filepath, image_id

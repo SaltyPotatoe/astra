@@ -15,7 +15,9 @@ from donuts.image import Image
 from photutils.background import Background2D, MedianBackground
 from scipy import ndimage
 
-from astra import CONFIG
+from astra import Config
+
+CONFIG = Config()
 
 """
 Configuration parameters
@@ -82,7 +84,7 @@ class Guider:
 
         # set up the image glob string
         # create reference directory if not exists
-        self.reference_dir = CONFIG.paths.folder_images / "autoguider_ref"
+        self.reference_dir = CONFIG.paths.images / "autoguider_ref"
         self.reference_dir.mkdir(parents=True, exist_ok=True)
 
         # pulseGuide conversions

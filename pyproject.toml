@@ -48,6 +48,8 @@ docs = [
 "Source" = "https://github.com/ppp-one/astra"
 "Bug Tracker" = "https://github.com/ppp-one/astra/issues"
 
+[project.scripts]
+astra = "astra.main:main"
 
 [build-system]
 requires = ["hatchling", "hatch-vcs"]

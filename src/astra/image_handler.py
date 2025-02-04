@@ -6,7 +6,9 @@ import pandas as pd
 from alpaca.camera import ImageMetadata
 from astropy.io import fits
 
-from astra import CONFIG
+from astra import Config
+
+CONFIG = Config()
 
 
 def create_image_dir(
@@ -30,7 +32,7 @@ def create_image_dir(
         date_str = (schedule_start_time + timedelta(hours=site_long / 15)).strftime(
             "%Y%m%d"
         )
-        folder = CONFIG.paths.folder_images / date_str
+        folder = CONFIG.paths.images / date_str
         folder.mkdir(exist_ok=True)
     return folder
 
@@ -126,7 +128,7 @@ def save_image(
     else:
         filename = f"{device_name}_{filter_name}_{hdr['IMAGETYP']}_{hdr['EXPTIME']}_{date.strftime('%Y%m%d_%H%M%S.%f')[:-3]}.fits"
 
-    filepath = CONFIG.paths.folder_images / folder / filename
+    filepath = CONFIG.paths.images / folder / filename
 
     # save FITS file
     hdu.writeto(filepath)
