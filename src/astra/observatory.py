@@ -1562,7 +1562,9 @@ class Observatory:
                     "error": str(e),
                 }
             )
-            self.logger.error(f"Run action error: {str(e)}")
+            self.logger.error(
+                f"Run action error: {str(e)}", exc_info=True, stack_info=True
+            )
 
     def cool_camera(
         self, row: dict, set_temperature: float, temperature_tolerance: float = 1
