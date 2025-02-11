@@ -175,6 +175,35 @@ def close_observatory(observatory: str):
     return {"status": "success", "data": "null", "message": ""}
 
 
+@app.get("/api/cool_camera/{observatory}/{device_name}")
+def cool_camera(observatory: str, device_name: str):
+    obs = OBSERVATORIES[observatory]
+
+    row = {"device_name": device_name}
+
+    cam_index = obs.get_cam_index(row["device_name"])
+
+    set_temperature = obs.config["Camera"][cam_index]["temperature"]
+    temperature_tolerance = obs.config["Camera"][cam_index]["temperature_tolerance"]
+
+    obs.cool_camera(
+        row,
+        set_temperature=set_temperature,
+        temperature_tolerance=temperature_tolerance,
+    )
+
+    return {"status": "success", "data": "null", "message": ""}
+
+
+@app.get("/api/complete_headers/{observatory}")
+def cool_camera(observatory: str):
+    obs = OBSERVATORIES[observatory]
+
+    obs.final_headers()
+
+    return {"status": "success", "data": "null", "message": ""}
+
+
 @app.get("/api/startwatchdog/{observatory}")
 async def start_watchdog(observatory: str):
     obs = OBSERVATORIES[observatory]
@@ -205,26 +234,6 @@ async def start_schedule(observatory: str):
 async def stop_schedule(observatory: str):
     obs = OBSERVATORIES[observatory]
     obs.schedule_running = False
-
-    return {"status": "success", "data": "null", "message": ""}
-
-
-@app.get("/api/cool_camera/{observatory}/{device_name}")
-def cool_camera(observatory: str, device_name: str):
-    obs = OBSERVATORIES[observatory]
-
-    row = {"device_name": device_name}
-
-    cam_index = obs.get_cam_index(row["device_name"])
-
-    set_temperature = obs.config["Camera"][cam_index]["temperature"]
-    temperature_tolerance = obs.config["Camera"][cam_index]["temperature_tolerance"]
-
-    obs.cool_camera(
-        row,
-        set_temperature=set_temperature,
-        temperature_tolerance=temperature_tolerance,
-    )
 
     return {"status": "success", "data": "null", "message": ""}
 
