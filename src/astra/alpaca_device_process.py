@@ -141,8 +141,8 @@ class AlpacaDevice(Process):
         )
         self.active = True
 
-        signal.signal(signal.SIGINT, self.stop__)
-        signal.signal(signal.SIGTERM, self.stop__)
+        signal.signal(signal.SIGINT, self.stop_poll__)
+        signal.signal(signal.SIGTERM, self.stop_poll__)
 
         while self.active:
             self.active = self.listenFront__()
@@ -466,7 +466,7 @@ class AlpacaDevice(Process):
                 )
             )
 
-    def stop_poll__(self, method=None):
+    def stop_poll__(self, method=None, *args):
         if method is None:
             self._poll_list = []
             self._poll_latest = {}

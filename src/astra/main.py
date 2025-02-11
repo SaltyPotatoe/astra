@@ -73,7 +73,21 @@ def observatory_db(name):
 
 
 def clean_up():
-    pass
+
+    for obs in OBSERVATORIES.values():
+        # Get all the devices
+        for device_type in obs.devices:
+            for device_name in obs.devices[device_type]:
+                # Get the device
+                device = obs.devices[device_type][device_name]
+                # Stop the device
+                try:
+                    # print(f"Stopping device {device_name}")
+                    device.stop()
+                except Exception as e:
+                    print(f"Error stopping device {device_name}: {e}")
+
+    print("Exiting clean_up")
 
 
 def format_time(ftime: datetime.datetime):
@@ -866,5 +880,9 @@ if __name__ == "__main__":
     if log_level == "info":
         logging.getLogger().setLevel(logging.INFO)
     uvicorn.run(
-        app, host="0.0.0.0", port=8000, log_level=log_level, timeout_graceful_shutdown=0
+        app,
+        host="0.0.0.0",
+        port=8000,
+        log_level=log_level,
+        timeout_graceful_shutdown=None,
     )
