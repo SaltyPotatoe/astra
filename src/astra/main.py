@@ -174,7 +174,10 @@ def close_observatory(observatory: str):
 
     obs.logger.info(f"User initiated closing of observatory from web interface")
 
-    obs.close_observatory()
+    val = obs.close_observatory()
+
+    if val:
+        obs.logger.info(f"Observatory closed.")
 
     return {"status": "success", "data": "null", "message": ""}
 
@@ -191,6 +194,14 @@ def cool_camera(observatory: str, device_name: str):
     temperature_tolerance = obs.config["Camera"][cam_index]["temperature_tolerance"]
 
     obs.logger.info(f"User initiated cooling of {device_name} from web interface")
+
+    camera = obs.devices["Camera"][device_name]
+
+    current_temperature = camera.poll_latest()["CCDTemperature"]["value"]
+
+    obs.logger.info(
+        f"Current camera temperature: {current_temperature}C, Set temperature: {set_temperature}C"
+    )
 
     obs.cool_camera(
         row,

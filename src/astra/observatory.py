@@ -275,7 +275,7 @@ class Observatory:
 
         return observatory
 
-    def load_devices(self) -> dict:
+    def load_devices(self) -> dict[str, dict[str, AlpacaDevice]]:
         """
         This method iterates through the observatory configuration, creating and starting
         device objects for each defined device.
@@ -1102,7 +1102,7 @@ class Observatory:
 
     def close_observatory(
         self, paired_devices: dict | None = None, error_sensitive: bool = True
-    ) -> None:
+    ) -> bool:
         """
         Close the observatory operations in the following order:
 
@@ -1282,6 +1282,8 @@ class Observatory:
         if self.speculoos:
             # SPECULOOS EDIT
             self.resume_polls(["Dome", "Telescope", "Focuser"])
+
+        return True
 
     def read_schedule(self) -> pd.DataFrame:
         """
