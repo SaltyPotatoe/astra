@@ -140,7 +140,7 @@ class Observatory:
         self.last_image = None
 
         # for each telescope, create a donuts guider
-        self.guider = {}
+        self.guider: dict[str, Guider] = {}
         if "Telescope" in self.config:
             for device_name in self.devices["Telescope"]:
                 telescope = self.devices["Telescope"][device_name]
@@ -2165,10 +2165,7 @@ class Observatory:
 
         th = Thread(
             target=self.guider[paired_devices["Telescope"]].guider_loop,
-            args=(
-                paired_devices["Camera"],
-                glob_str,
-            ),
+            args=(paired_devices["Camera"], glob_str, action_value["exptime"] * 2),
             daemon=True,
         )
         th.start()

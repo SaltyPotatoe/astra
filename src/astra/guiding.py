@@ -114,9 +114,6 @@ class Guider:
         # PID loop coefficients
         self.PID_COEFFS = params["PID_COEFFS"]
 
-        # wait time before checking for new images
-        self.WAIT_TIME = params["WAIT_TIME"]
-
         # set up variables
         # initialise the PID controllers for X and Y
         self.PIDx = PID(
@@ -591,7 +588,7 @@ class Guider:
             ref_image, os.path.join(self.reference_dir, os.path.split(ref_image)[-1])
         )
 
-    def waitForImage(self, n_images, camera_name, glob_str):
+    def waitForImage(self, n_images, camera_name, glob_str, wait_time=10):
         """
         Wait for new images.
 
@@ -659,12 +656,12 @@ class Guider:
 
                 # if no new images, wait for a bit
                 else:
-                    time.sleep(self.WAIT_TIME)
+                    time.sleep(wait_time)
 
         # return None values if self.running is False
         return None, None, None, None
 
-    def guider_loop(self, camera_name, glob_str):
+    def guider_loop(self, camera_name, glob_str, wait_time=10):
         self.running = True
 
         self.__log("info", f"Starting guider loop for: {glob_str} images")
@@ -685,7 +682,7 @@ class Guider:
 
                 if n_images == 0:
                     last_file, _, _, _ = self.waitForImage(
-                        n_images, camera_name, glob_str
+                        n_images, camera_name, glob_str, wait_time
                     )
                 else:
                     last_file = max(templist, key=os.path.getctime)
