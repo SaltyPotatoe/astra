@@ -1953,10 +1953,10 @@ class Observatory:
 
             self.logger.info(f"Image saved as {os.path.basename(filepath)}")
             self.logger.info(
-                f"Image acquired in {time.time() - exposure_end_time} s from when ImageReady was read True"
+                f"Image acquired in {(time.time() - exposure_end_time):.3f} s from when ImageReady was read True"
             )
             self.logger.info(
-                f"Image acquired in {time.time() - exposure_start_time} s from when StartExposure was called"
+                f"Image acquired in {(time.time() - exposure_start_time):.3f} s from when StartExposure was called"
             )
 
             self.last_image = filepath
@@ -2155,7 +2155,7 @@ class Observatory:
             else:
                 t_shift = 0
 
-            self.logger.info(f"Pointing model point {counter+1}/{N}")
+            self.logger.info(f"Running pointing model point {counter+1}/{N}")
 
             # move telescope to target
             action_value["ra"] = target_radec.ra.deg
