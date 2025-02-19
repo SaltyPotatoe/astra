@@ -156,7 +156,7 @@ class Guider:
         self.cursor.execute(db_command_0)
 
         db_command_1 = """CREATE TABLE IF NOT EXISTS autoguider_log_new (
-                updated timestamp default current_timestamp,
+                datetime timestamp default current_timestamp,
                 night date not null,
                 reference varchar(150) not null,
                 comparison varchar(150) not null,
@@ -178,7 +178,7 @@ class Guider:
 
         db_command_2 = """CREATE TABLE IF NOT EXISTS autoguider_info_log (
                 message_id INTEGER PRIMARY KEY AUTOINCREMENT,
-                updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                datetime TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 telescope varchar(20) NOT NULL,
                 message varchar(500) NOT NULL
                 );
