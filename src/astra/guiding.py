@@ -244,7 +244,6 @@ class Guider:
         qry_args = (camera_name, message)
         self.cursor.execute(qry % qry_args)
 
-    # TODO: change location of logfile to be in the same directory as the data
     def logShiftsToFile(self, logfile, loglist, header=False):
         """
         Log the guide corrections to disc. This log is
@@ -878,6 +877,15 @@ class Guider:
                         self.logShiftsToFile(LOGFILE, log_list)
                         # log info to database - enable when DB is running
                         self.logShiftsToDb(tuple(log_list))
+
+                        # log the shifts to the logger
+                        self.logger.info(
+                            "Guider post_pid_x shift: {:.2f}".format(post_pid_x)
+                        )
+                        self.logger.info(
+                            "Guider post_pid_y shift: {:.2f}".format(post_pid_y)
+                        )
+
                         # reset the comparison templist so the nested while(1) loop
                         # can find new images
                         templist = g.glob(glob_str)
