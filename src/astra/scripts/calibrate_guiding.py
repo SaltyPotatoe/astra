@@ -1,7 +1,7 @@
 """
 Script to calibrate the pulseGuide command
 
-This is done by pointing the telescope at the meridian
+This is done by pointing the telescope 1 hour east of the meridian
 and 0 deg Declination. The telescope is then pulseGuided
 around the sky in a cross pattern, taking an image at each
 location. DONUTS is then used to measure the shift and
@@ -9,7 +9,6 @@ determine the camera orientation and pulseGuide conversion
 factors
 """
 
-import os
 import time
 from collections import defaultdict
 
@@ -22,13 +21,11 @@ from alpaca.telescope import GuideDirections
 from donuts import Donuts
 from donuts.image import Image
 from scipy.ndimage import median_filter
+from datetime import datetime, UTC
 
 from astra import Config
 
 CONFIG = Config()
-
-# pylint: disable=invalid-name
-# pylint: disable=redefined-outer-name
 
 
 class CustomImageClass(Image):
@@ -39,19 +36,18 @@ class CustomImageClass(Image):
         self.raw_image = band_clean
 
 
-TELESCOPE_IP = "localhost:11111"
+TELESCOPE_IP = "localhost"
 TELESCOPE_DEVICE_NUMBER = 0
 
-CAMERA_IP = "localhost:11111"
+CAMERA_IP = "localhost:8080"
 CAMERA_DEVICE_NUMBER = 0
 
 
-def connectTelescope():
+def connect_telescope():
     """
     A reusable way to connect to ACP telescope
     """
     print("Connecting to telescope...")
-    # myScope = win32com.client.Dispatch("ACP.Telescope")
     myScope = Telescope(TELESCOPE_IP, TELESCOPE_DEVICE_NUMBER)
     try:
         myScope.Connected = True
@@ -65,7 +61,7 @@ def connectTelescope():
     return myScope, SCOPE_READY
 
 
-def connectCamera():
+def connect_camera():
     """
     A reusable way of checking camera connection
 
@@ -85,9 +81,7 @@ def connectCamera():
     return myCamera, CAMERA_READY
 
 
-def takeImageWithMaxIm(
-    camera_object: Camera, image_path, filter_id=2, exptime=1, t_settle=1
-):
+def perform_exposure(camera_object: Camera, image_path, exptime=5, t_settle=10):
     """
     Take an image with MaxImDL
     """
@@ -95,7 +89,7 @@ def takeImageWithMaxIm(
     time.sleep(t_settle)
 
     print("Taking image...")
-    dateobs = datetime.utcnow()
+    dateobs = datetime.now(UTC)
     maxadu = camera_object.MaxADU
 
     camera_object.StartExposure(Duration=exptime, Light=True)
@@ -158,7 +152,7 @@ def save_image(
         "UTC date/time of exposure start",
     )
 
-    date = datetime.utcnow()
+    date = datetime.now(UTC)
     hdr["DATE"] = (
         date.strftime("%Y-%m-%dT%H:%M:%S.%f"),
         "UTC date/time when this file was written",
@@ -284,14 +278,32 @@ if __name__ == "__main__":
     image_id = 0
 
     # connect to hardware
-    myScope, SCOPE_READY = connectTelescope()
-    myCamera, CAMERA_READY = connectCamera()
+    myScope, SCOPE_READY = connect_telescope()
+    myCamera, CAMERA_READY = connect_camera()
 
-    time.sleep(1)
+    # turn tracking on
+    myScope.Tracking = True
+    time.sleep(5)
+
+    # slew to 1 hour east of meridian and 0 deg Dec
+    local_sidereal_time = myScope.SiderealTime
+    print("Local sidereal time:", local_sidereal_time)
+    myScope.SlewToCoordinatesAsync(
+        RightAscension=local_sidereal_time - 1, Declination=0
+    )
+
+    while myScope.Slewing:
+        print("Slewing...")
+        print("RA:", myScope.RightAscension)
+        print("Dec:", myScope.Declination)
+        print("Alt:", myScope.Altitude)
+        print("Az:", myScope.Azimuth)
+        time.sleep(1)
+
     # start the calibration run
     print("Starting calibration run...")
     ref_image, image_id = newFilename("R", 0, image_id)
-    takeImageWithMaxIm(myCamera, ref_image)
+    perform_exposure(myCamera, ref_image)
 
     # set up donuts with this reference point. Assume default params for now
     donuts_ref = Donuts(
@@ -313,7 +325,7 @@ if __name__ == "__main__":
             # take an image
             check, image_id = newFilename(j, pulse_time, image_id)
 
-            takeImageWithMaxIm(myCamera, check)
+            perform_exposure(myCamera, check)
 
             # now measure the shift
             shift = donuts_ref.measure_shift(check)
