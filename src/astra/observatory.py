@@ -134,7 +134,9 @@ class Observatory:
             self.schedule = self.read_schedule()
 
         # load devices
-        self.monitor_action_queue = {}  # queue for monitoring/running actions per device_name
+        self.monitor_action_queue = (
+            {}
+        )  # queue for monitoring/running actions per device_name
         self.devices = self.load_devices()
         self.last_image = None
 
@@ -652,9 +654,12 @@ class Observatory:
                             - time_since_last_unsafe.total_seconds() / 60
                         )
 
-                        self.time_to_safe = max(
-                            current_time_to_safe, internal_time_to_safe
-                        )
+                        if rows[0][0] == 0:
+                            self.time_to_safe = internal_time_to_safe
+                        else:
+                            self.time_to_safe = max(
+                                current_time_to_safe, internal_time_to_safe
+                            )
                     else:
                         self.time_to_safe = 0
 
@@ -2101,7 +2106,7 @@ class Observatory:
                     )
 
                     if self.speculoos:
-                        time.sleep(exptime*3) # for spirit
+                        time.sleep(exptime * 3)  # for spirit
 
                     pointing_attempts += 1
 
@@ -2254,7 +2259,7 @@ class Observatory:
             )
 
             if self.speculoos:
-                time.sleep(exptime*3) # for spirit
+                time.sleep(exptime * 3)  # for spirit
 
             # update header with wcs
             if wcs_solve is not None:
