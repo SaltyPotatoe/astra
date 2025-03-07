@@ -1835,6 +1835,14 @@ class Observatory:
                 weather_sensitive=False,
             )
 
+        if "bin" in action_value:
+            if "Camera" in paired_devices:
+                camera = self.devices["Camera"][paired_devices["Camera"]]
+                camera.set("BinX", action_value["bin"])
+                camera.set("BinY", action_value["bin"])
+                camera.set("NumX", camera.get("CameraXSize") // camera.get("BinX"))
+                camera.set("NumY", camera.get("CameraYSize") // camera.get("BinY"))
+
     def wait_for_slew(self, paired_devices: dict) -> None:
         """
         Wait for a telescope to complete its slewing operation.
