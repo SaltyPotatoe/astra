@@ -847,7 +847,7 @@ class Observatory:
 
         longest_time_to_safe = 0
         longest_max_safe_duration = 0
-        if "ObservingConditions" in self.config and "Dome" in self.config:
+        if "ObservingConditions" in self.config:
             if "closing_limits" in self.config["ObservingConditions"][0]:
                 closing_limits = self.config["ObservingConditions"][0]["closing_limits"]
 
