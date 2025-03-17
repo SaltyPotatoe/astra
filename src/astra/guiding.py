@@ -425,14 +425,14 @@ class Guider:
             # make another check that the post PID values are not > Max allowed
             # using >= allows for the stabilising runs to get through
             # abs() on -ve duration otherwise throws back an error
-            if pidy > 0 and pidy <= CURRENT_MAX_SHIFT:
+            if pidy > 0 and pidy <= CURRENT_MAX_SHIFT and self.running:
                 guide_time_y = pidy * self.PIX2TIME["+y"]
                 if self.RA_AXIS == "y":
                     guide_time_y = guide_time_y / cos_dec
                 self.telescope.get("PulseGuide")(
                     Direction=self.DIRECTIONS["+y"], Duration=int(guide_time_y)
                 )
-            if pidy < 0 and pidy >= -CURRENT_MAX_SHIFT:
+            if pidy < 0 and pidy >= -CURRENT_MAX_SHIFT and self.running:
                 guide_time_y = abs(pidy * self.PIX2TIME["-y"])
                 if self.RA_AXIS == "y":
                     guide_time_y = guide_time_y / cos_dec
@@ -441,10 +441,10 @@ class Guider:
                 )
 
             # TODO: add timeout
-            while self.telescope.get("IsPulseGuiding"):
+            while self.telescope.get("IsPulseGuiding") and self.running:
                 time.sleep(0.01)
 
-            if pidx > 0 and pidx <= CURRENT_MAX_SHIFT:
+            if pidx > 0 and pidx <= CURRENT_MAX_SHIFT and self.running:
                 guide_time_x = pidx * self.PIX2TIME["+x"]
                 if self.RA_AXIS == "x":
                     guide_time_x = guide_time_x / cos_dec
@@ -452,7 +452,7 @@ class Guider:
                     Direction=self.DIRECTIONS["+x"], Duration=int(guide_time_x)
                 )
 
-            if pidx < 0 and pidx >= -CURRENT_MAX_SHIFT:
+            if pidx < 0 and pidx >= -CURRENT_MAX_SHIFT and self.running:
                 guide_time_x = abs(pidx * self.PIX2TIME["-x"])
                 if self.RA_AXIS == "x":
                     guide_time_x = guide_time_x / cos_dec
@@ -461,10 +461,17 @@ class Guider:
                 )
 
             # TODO: add timeout
-            while self.telescope.get("IsPulseGuiding"):
+            while self.telescope.get("IsPulseGuiding") and self.running:
                 time.sleep(0.01)
 
-            self.logMessageToDb(camera_name, "Guide correction Applied")
+            if self.running:
+                self.logMessageToDb(camera_name, "Guide correction Applied")
+            else:
+                self.logMessageToDb(
+                    camera_name,
+                    "Guide correction NOT Applied due to self.running=False",
+                )
+
             # store the original values in the buffer
             # only if we are not stabilising
             if images_to_stabilise < 0:
@@ -839,22 +846,28 @@ class Guider:
                                 std_buff_y,
                             ) = (0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
                         else:
-                            (
-                                applied,
-                                post_pid_x,
-                                post_pid_y,
-                                std_buff_x,
-                                std_buff_y,
-                            ) = self.guide(
-                                pre_pid_x, pre_pid_y, images_to_stabilise, camera_name
-                            )
-                            # !applied means no telescope, break to tomorrow
-                            if not applied:
-                                self.logMessageToDb(
+                            if self.running:
+                                (
+                                    applied,
+                                    post_pid_x,
+                                    post_pid_y,
+                                    std_buff_x,
+                                    std_buff_y,
+                                ) = self.guide(
+                                    pre_pid_x,
+                                    pre_pid_y,
+                                    images_to_stabilise,
                                     camera_name,
-                                    "SHIFT NOT APPLIED, TELESCOPE *NOT* CONNECTED, EXITING",
                                 )
-                                self.running = False
+                                # !applied means no telescope, break to tomorrow
+                                if not applied:
+                                    self.logMessageToDb(
+                                        camera_name,
+                                        "SHIFT NOT APPLIED, TELESCOPE *NOT* CONNECTED, EXITING",
+                                    )
+                                    self.running = False
+                            else:
+                                break
 
                         log_list = [
                             os.path.split(glob_str)[-2],
