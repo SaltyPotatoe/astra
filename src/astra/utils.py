@@ -143,8 +143,8 @@ def time_conversion(jd, location, target):
     lst = time_inp.sidereal_time("mean")
     lstsec = lst.hour * 3600
     ha = Angle(((((lst - target.ra).hour + 12) % 24) - 12) * u.hourangle).to_string(
-        unit=u.hourangle, sep=" "
-    )  # MH - not zero padded but will do for now
+        unit=u.hourangle, sep=" ", pad=True
+    )
 
     return hjd, bjd, lstsec, ha
 
