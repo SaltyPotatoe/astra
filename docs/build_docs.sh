@@ -5,8 +5,8 @@
 cd "$(dirname "$0")"
 
 # Install documentation dependencies if needed
-echo "Checking documentation dependencies..."
-pip install -q -e "..[docs]" || { echo "Failed to install dependencies"; exit 1; }
+# echo "Checking documentation dependencies..."
+# pip install -q -e "..[docs]" || { echo "Failed to install dependencies"; exit 1; }
 
 # Clean previous build
 echo "Cleaning previous build..."

@@ -19,10 +19,6 @@ from astra import Config
 
 CONFIG = Config()
 
-"""
-Configuration parameters
-"""
-
 # header keyword for the current filter
 FILTER_KEYWORD = "FILTER"
 
