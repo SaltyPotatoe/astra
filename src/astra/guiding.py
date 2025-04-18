@@ -156,7 +156,7 @@ class Guider:
 
         self.cursor.execute(db_command_0)
 
-        db_command_1 = """CREATE TABLE IF NOT EXISTS autoguider_log_new (
+        db_command_1 = """CREATE TABLE IF NOT EXISTS autoguider_log (
                 datetime timestamp default current_timestamp,
                 night date not null,
                 reference varchar(150) not null,
@@ -206,7 +206,7 @@ class Guider:
         None
         """
         qry = """
-            INSERT INTO autoguider_log_new
+            INSERT INTO autoguider_log
             (night, reference, comparison, stabilised, shift_x, shift_y,
             pre_pid_x, pre_pid_y, post_pid_x, post_pid_y, std_buff_x,
             std_buff_y, culled_max_shift_x, culled_max_shift_y)
