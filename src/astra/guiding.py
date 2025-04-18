@@ -47,7 +47,8 @@ MAX_ERROR_PIXELS = 20
 # max alloed shift to correct during stabilisation
 MAX_ERROR_STABIL_PIXELS = 40
 
-# TODO: add logger handler here?
+# IsPulseGuiding timeout
+IS_PULSE_GUIDING_TIMEOUT = 120  # seconds
 
 
 class CustomImageClass(Image):
@@ -440,8 +441,13 @@ class Guider:
                     Direction=self.DIRECTIONS["-y"], Duration=int(guide_time_y)
                 )
 
-            # TODO: add timeout
+            start_time = time.time()
             while self.telescope.get("IsPulseGuiding") and self.running:
+                if time.time() - start_time > IS_PULSE_GUIDING_TIMEOUT:
+                    self.logger.warning(
+                        f"Pulse guiding timed out after {IS_PULSE_GUIDING_TIMEOUT} seconds."
+                    )
+                    break
                 time.sleep(0.01)
 
             if pidx > 0 and pidx <= CURRENT_MAX_SHIFT and self.running:
@@ -460,8 +466,13 @@ class Guider:
                     Direction=self.DIRECTIONS["-x"], Duration=int(guide_time_x)
                 )
 
-            # TODO: add timeout
+            start_time = time.time()
             while self.telescope.get("IsPulseGuiding") and self.running:
+                if time.time() - start_time > IS_PULSE_GUIDING_TIMEOUT:
+                    self.logger.warning(
+                        f"Pulse guiding timed out after {IS_PULSE_GUIDING_TIMEOUT} seconds."
+                    )
+                    break
                 time.sleep(0.01)
 
             if self.running:
