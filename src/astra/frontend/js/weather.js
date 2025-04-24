@@ -145,6 +145,7 @@ function plotWeather(data, observatory, update) {
 
 
     document.getElementById(`weather-latest-${observatory}`).innerHTML = `
+        <div class="flex-initial overflow-x-scroll">
         <table class="table-auto w-full proportional-nums font-variant-numeric rounded-lg bg-gray-600/20" id="weather-table-${observatory}" title="Last refreshed: ${new Date().toISOString().slice(0, 19).replace("T", " ")}">
         <thead>
             <tr class="border-b-2 border-b-slate-500">
@@ -245,7 +246,8 @@ function plotWeather(data, observatory, update) {
             })
             .join("")}
           </tbody>
-        </table>`;
+        </table>
+        </div>`;
 
 
     // Helper function to create common plot marks
