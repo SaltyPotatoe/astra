@@ -20,7 +20,7 @@ from fastapi import FastAPI, Request, WebSocket
 from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
 from fastapi.templating import Jinja2Templates
 
-from astra import Config
+from astra import ASTRA_VER, Config
 from astra.observatory import Observatory
 
 # silence httpx logging
@@ -280,7 +280,7 @@ async def stop_schedule(observatory: str):
 
     obs.logger.info(f"User initiated stopping of schedule from web interface")
 
-    obs.schedule_running = False
+    obs.stop_schedule()
 
     return {"status": "success", "data": "null", "message": ""}
 
@@ -869,10 +869,14 @@ async def serve_files(request: Request, path: str = ""):
         return HTMLResponse(status_code=404, content="Not Found")
 
 
-if __name__ == "__main__":
+def main():
     import argparse
 
-    # TODO: add speculoos tag
+    global DEBUG, TRUNCATE_SCHEDULE, SPECULOOS
+
+    print(f"Astra version: {ASTRA_VER}")
+
+    # TODO: add observatory tag
     parser = argparse.ArgumentParser(description="Run Astra")
     parser.add_argument("--debug", action="store_true", help="run in debug mode")
     parser.add_argument(
@@ -912,3 +916,7 @@ if __name__ == "__main__":
         log_level=log_level,
         timeout_graceful_shutdown=None,
     )
+
+
+if __name__ == "__main__":
+    main()

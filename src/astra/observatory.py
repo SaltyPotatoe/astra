@@ -125,9 +125,10 @@ class Observatory:
         self.weather_safe = None
         self.time_to_safe = 0
 
-        # watchdog and schedule running flags
+        # watchdog/schedule running flags, robotic switch
         self.watchdog_running = False
         self.schedule_running = False
+        self.robotic_switch = False
 
         # schedule
         self.schedule_path = CONFIG.paths.schedules / f"{self.name}.csv"
@@ -572,7 +573,11 @@ class Observatory:
                         ):
                             self.logger.warning("Schedule updated")
                             self.schedule = self.read_schedule()
-                            # self.start_schedule() # for robotic switch: start schedule if not running
+                            if self.robotic_switch is True:
+                                self.logger.warning(
+                                    "Robotic switch is on, starting schedule"
+                                )
+                                self.start_schedule()
                     except Exception as e:
                         self.error_source.append(
                             {
@@ -1467,6 +1472,25 @@ class Observatory:
                 "id": "schedule",
             }
         )
+
+    def stop_schedule(self) -> None:
+        """
+        Stop the schedule thread if it is running.
+
+        This method sets the schedule_running flag to False, indicating that the schedule should stop executing.
+
+        """
+
+        if self.schedule_running:
+            self.schedule_running = False
+            self.logger.info("Stopping schedule")
+            for th in self.threads:
+                if th["type"] == "run_schedule":
+                    th["thread"].join()
+                    self.logger.info("Schedule stopped")
+                    break
+        else:
+            self.logger.warning("Schedule not running")
 
     def run_schedule(self) -> None:
         """
