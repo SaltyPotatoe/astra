@@ -707,6 +707,7 @@ class Observatory:
                 try:
                     # stop schedule
                     self.schedule_running = False
+                    self.robotic_switch = False
 
                     # wait a bit to see if it's a multi-device error?
                     self.logger.info(
@@ -841,6 +842,7 @@ class Observatory:
             time.sleep(0.5)  # twice the safety monitor polling time
 
         self.schedule_running = False  # stop schedule if watchdog stopped
+        self.robotic_switch = False
         self.watchdog_running = False
         self.logger.warning("Watchdog stopped")
 

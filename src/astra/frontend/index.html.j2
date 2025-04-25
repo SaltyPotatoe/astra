@@ -284,9 +284,11 @@
             const popupX = mouseX + padding;
             const popupY = mouseY + padding;
             const maxX = window.innerWidth - popupWidth - padding;
+            const maxY = window.innerHeight - popupHeight - padding;
             const adjustedX = Math.min(popupX, maxX);
+            const adjustedY = popupY > maxY ? mouseY - popupHeight - padding : popupY;
             popup.style.left = `${adjustedX}px`;
-            popup.style.top = `${popupY}px`;
+            popup.style.top = `${adjustedY}px`;
         }
 
         function syntaxHighlight(json) {
