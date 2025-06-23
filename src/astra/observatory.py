@@ -2252,22 +2252,6 @@ class Observatory:
                     f"Stopping telescope {paired_devices['Telescope']} guiding"
                 )
                 self.guider[paired_devices["Telescope"]].running = False
-        
-        # Stop tracking after the sequence ends
-        if "Telescope" in paired_devices:
-            self.logger.info(
-                f"Stopping tracking for telescope {paired_devices['Telescope']} after sequence"
-            )
-            self.monitor_action(
-                "Telescope",
-                "Tracking",
-                False,
-                "Tracking",
-                device_name=paired_devices["Telescope"],
-                log_message=f"Stopping tracking for telescope {paired_devices['Telescope']}",
-                weather_sensitive=False,
-                error_sensitive=False,
-            )
 
     def pointing_model_sequence(self, row: dict, paired_devices: dict) -> None:
         """
