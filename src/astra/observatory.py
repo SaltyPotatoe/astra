@@ -1985,6 +1985,7 @@ class Observatory:
                 log_message=f"Stopping telescope tracking for {paired_devices['Telescope']}",
             )
 
+
     def pointing_correction(
         self, row: dict, action_value: dict, filepath: str, paired_devices: dict
     ) -> None:
