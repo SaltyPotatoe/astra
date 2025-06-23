@@ -24,27 +24,37 @@ Works currently in progress are listed in the [issues tab](https://github.com/pp
 
 ### Installation
 
+Clone the Astra Github repository with
+
 ```
 git clone https://github.com/ppp-one/astra.git
+```
+
+and create a virtual environment with conda
+
+```
+conda create -n astra python=3.11
+conda activate astra
+```
+
+then install Astra locally with
+
+```
 cd astra
-conda env create -f <operating system>-environment.yml
+pip install -e .
 ```
 
 ### Usage
 
-1. Have Alpaca compliant equipment or [simulators](https://github.com/ASCOMInitiative/ASCOM.Alpaca.Simulators) active in your local network. 
-2. Edit the config file `config/<observatory-name>.yml` to specify the observatory parameters and equipment's connection with Alpaca. See `config/Callisto.yml` as an example.
-3. Adjust `config/<observatory-name>_fits_headers.csv` to your needs, specifically look at the rows with `astra_fixed`. See `config/Callisto_fits_headers.csv` as an example.
-3. Have a schedule file `schedule/<observatory-name>.csv` ready to be used. See `schedule/Callisto.csv` as an example.
-4. Remove any unused `.yml` files in the `config` folder, and `.csv` files in the schedule folder. Otherwise, Astra will pick them up.
-5. Then run the following commands to start Astra:
+1. Have Alpaca compliant equipment or [simulators](https://github.com/ASCOMInitiative/ASCOM.Alpaca.Simulators) active in your local network.
+2. Then run the following commands to start Astra:
 
 ```
-conda activate astra
-python code/src/main.py --truncate # truncate is for testing locally, it brings the schedule to present day and shortens it 10x.
+python src/astra/main.py
 ```
 
-5. Open the browser and go to `http://localhost:8000/` to access Astra.
+3. Follow the terminal instructions.
+4. Once 3. completed, open the browser and go to `http://localhost:8000/` to access Astra.
 
 Below is a screenshot of Astra working at SPECULOOS:
 

@@ -2,11 +2,13 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import numpy as np
-import pandas as pd
 from alpaca.camera import ImageMetadata
 from astropy.io import fits
+from astropy.wcs.utils import WCS
 
-from astra import CONFIG
+from astra import Config
+
+CONFIG = Config()
 
 
 def create_image_dir(
@@ -30,12 +32,14 @@ def create_image_dir(
         date_str = (schedule_start_time + timedelta(hours=site_long / 15)).strftime(
             "%Y%m%d"
         )
-        folder = CONFIG.folder_images / date_str
+        folder = CONFIG.paths.images / date_str
         folder.mkdir(exist_ok=True)
     return folder
 
 
-def img_transform(img: np.array, maxadu: int, imginfo: ImageMetadata) -> np.array:
+def transform_image_to_array(
+    image: list[int] | np.ndarray, maxadu: int, image_info: ImageMetadata
+) -> np.ndarray:
     """
     This function takes in a device object, an image object, and a maximum ADU
     value and returns a numpy array of the correct shape for astropy.io.fits.
@@ -48,40 +52,42 @@ def img_transform(img: np.array, maxadu: int, imginfo: ImageMetadata) -> np.arra
     Returns:
         nda (np.array): A numpy array of the correct shape for astropy.io.fits.
     """
+    if not isinstance(image, np.ndarray):
+        image = np.array(image)
 
     # Determine the image data type
-    if imginfo.ImageElementType == 0 or imginfo.ImageElementType == 1:
+    if image_info.ImageElementType == 0 or image_info.ImageElementType == 1:
         imgDataType = np.uint16
-    elif imginfo.ImageElementType == 2:
+    elif image_info.ImageElementType == 2:
         if maxadu <= 65535:
             imgDataType = np.uint16  # Required for BZERO & BSCALE to be written
         else:
             imgDataType = np.int32
-    elif imginfo.ImageElementType == 3:
+    elif image_info.ImageElementType == 3:
         imgDataType = np.float64
     else:
-        raise ValueError(f"Unknown ImageElementType: {imginfo.ImageElementType}")
+        raise ValueError(f"Unknown ImageElementType: {image_info.ImageElementType}")
 
     # Make a numpy array of the correct shape for astropy.io.fits
-    if imginfo.Rank == 2:
-        nda = np.array(img, dtype=imgDataType).transpose()
+    if image_info.Rank == 2:
+        image_array = np.array(image, dtype=imgDataType).transpose()
     else:
-        nda = np.array(img, dtype=imgDataType).transpose(2, 1, 0)
+        image_array = np.array(image, dtype=imgDataType).transpose(2, 1, 0)
 
-    return nda
+    return image_array
 
 
 def save_image(
-    image_array: list[int],
-    imginfo: ImageMetadata,
+    image: list[int] | np.ndarray,
+    image_info: ImageMetadata,
     maxadu: int,
     hdr: fits.Header,
     device_name: str,
     dateobs: datetime,
     folder: str,
-) -> str:
-    """
-    Save an image to disk.
+    wcs: WCS = None,
+) -> Path:
+    """Save an image to disk.
 
     This function retrieves an image from an Alpaca device, transforms it, and saves it to disk in FITS format.
     The filename is generated based on device information and the image's characteristics.
@@ -99,8 +105,9 @@ def save_image(
     """
 
     # transform image to numpy array
-    img = np.array(image_array)
-    nda = img_transform(img, maxadu, imginfo)  ## TODO: make more efficient?
+    image_array = transform_image_to_array(
+        image, maxadu=maxadu, image_info=image_info
+    )  ## TODO: make more efficient?
 
     # update FITS header
     hdr["DATE-OBS"] = (
@@ -114,19 +121,23 @@ def save_image(
         "UTC date/time when this file was written",
     )
 
+    # add WCS information
+    if wcs:
+        hdr.extend(wcs.to_header(), update=True)
+
     # create FITS HDU
-    hdu = fits.PrimaryHDU(nda, header=hdr)
+    hdu = fits.PrimaryHDU(image_array, header=hdr)
 
     # create filename
     filter_name = hdr["FILTER"].replace("'", "")
     if hdr["IMAGETYP"] == "Light Frame":
-        filename = f"{device_name}_{filter_name}_{hdr['OBJECT']}_{hdr['EXPTIME']}_{date.strftime('%Y%m%d_%H%M%S.%f')[:-3]}.fits"
+        filename = f"{device_name}_{filter_name}_{hdr['OBJECT']}_{hdr['EXPTIME']:.3f}_{date.strftime('%Y%m%d_%H%M%S.%f')[:-3]}.fits"
     elif hdr["IMAGETYP"] in ["Bias Frame", "Dark Frame"]:
-        filename = f"{device_name}_{hdr['IMAGETYP']}_{hdr['EXPTIME']}_{date.strftime('%Y%m%d_%H%M%S.%f')[:-3]}.fits"
+        filename = f"{device_name}_{hdr['IMAGETYP']}_{hdr['EXPTIME']:.3f}_{date.strftime('%Y%m%d_%H%M%S.%f')[:-3]}.fits"
     else:
-        filename = f"{device_name}_{filter_name}_{hdr['IMAGETYP']}_{hdr['EXPTIME']}_{date.strftime('%Y%m%d_%H%M%S.%f')[:-3]}.fits"
+        filename = f"{device_name}_{filter_name}_{hdr['IMAGETYP']}_{hdr['EXPTIME']:.3f}_{date.strftime('%Y%m%d_%H%M%S.%f')[:-3]}.fits"
 
-    filepath = CONFIG.folder_images / folder / filename
+    filepath = CONFIG.paths.images / folder / filename
 
     # save FITS file
     hdu.writeto(filepath)

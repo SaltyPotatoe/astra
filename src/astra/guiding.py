@@ -15,11 +15,9 @@ from donuts.image import Image
 from photutils.background import Background2D, MedianBackground
 from scipy import ndimage
 
-from astra import CONFIG
+from astra import Config
 
-"""
-Configuration parameters
-"""
+CONFIG = Config()
 
 # header keyword for the current filter
 FILTER_KEYWORD = "FILTER"
@@ -45,13 +43,16 @@ MAX_ERROR_PIXELS = 20
 # max alloed shift to correct during stabilisation
 MAX_ERROR_STABIL_PIXELS = 40
 
-# TODO: add logger handler here?
+# IsPulseGuiding timeout
+IS_PULSE_GUIDING_TIMEOUT = 120  # seconds
 
 
 class CustomImageClass(Image):
     def preconstruct_hook(self):
         sigma_clip = SigmaClip(sigma=3.0)
         bkg_estimator = MedianBackground()
+
+        self.raw_image = self.raw_image.astype(np.int16)
 
         bkg = Background2D(
             self.raw_image,
@@ -66,23 +67,26 @@ class CustomImageClass(Image):
         band_corr = np.median(med_clean, axis=1).reshape(-1, 1)
         image_clean = med_clean - band_corr
 
-        self.raw_image = image_clean
+        self.raw_image = np.clip(image_clean, 1, None)
 
 
 class Guider:
-    def __init__(self, telescope, cursor, params):
+    def __init__(
+        self, telescope: object, cursor: object, logger: logging.Logger, params: dict
+    ):
         # TODO: camera angle?
 
         # pass in objects from astra
         self.telescope = telescope
         self.cursor = cursor
+        self.logger = logger
 
         # set up the database
         self.create_tables()  # this is assuming we're using the same db.  Should we have a separate one for guiding?
 
         # set up the image glob string
         # create reference directory if not exists
-        self.reference_dir = CONFIG.folder_images / "autoguider_ref"
+        self.reference_dir = CONFIG.paths.images / "autoguider_ref"
         self.reference_dir.mkdir(parents=True, exist_ok=True)
 
         # pulseGuide conversions
@@ -100,8 +104,8 @@ class Guider:
             elif params["DIRECTIONS"][direction] == "West":
                 self.DIRECTIONS[direction] = GuideDirections.guideWest
             else:
-                self.__log(
-                    "error", f"Invalid guide direction {self.DIRECTIONS[direction]}"
+                self.logger.error(
+                    f"Invalid guide direction {self.DIRECTIONS[direction]}"
                 )
 
         # RA axis alignment along x or y? TODO: can be inferred from telescope direction
@@ -109,9 +113,6 @@ class Guider:
 
         # PID loop coefficients
         self.PID_COEFFS = params["PID_COEFFS"]
-
-        # wait time before checking for new images
-        self.WAIT_TIME = params["WAIT_TIME"]
 
         # set up variables
         # initialise the PID controllers for X and Y
@@ -151,8 +152,8 @@ class Guider:
 
         self.cursor.execute(db_command_0)
 
-        db_command_1 = """CREATE TABLE IF NOT EXISTS autoguider_log_new (
-                updated timestamp default current_timestamp,
+        db_command_1 = """CREATE TABLE IF NOT EXISTS autoguider_log (
+                datetime timestamp default current_timestamp,
                 night date not null,
                 reference varchar(150) not null,
                 comparison varchar(150) not null,
@@ -174,46 +175,13 @@ class Guider:
 
         db_command_2 = """CREATE TABLE IF NOT EXISTS autoguider_info_log (
                 message_id INTEGER PRIMARY KEY AUTOINCREMENT,
-                updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                datetime TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 telescope varchar(20) NOT NULL,
                 message varchar(500) NOT NULL
                 );
                 """
 
         self.cursor.execute(db_command_2)
-
-    def __log(self, level: str, message: str):
-        """
-        Log a message to the database
-
-        log levels: info, warning, error, critical
-        """
-
-        # make message safe for sql
-        message = message.replace("'", "''")
-
-        # logging
-        if level == "info":
-            logging.info(message)
-        elif level == "debug" and self.debug is True:
-            logging.debug(message)
-        elif level == "warning":
-            logging.warning(message)
-        elif level == "error":
-            self.error_free = False
-            logging.error(message, exc_info=True)
-        elif level == "critical":
-            logging.critical(message)
-
-        dt_str = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
-        if level == "debug" and self.debug is True:
-            self.cursor.execute(
-                f"INSERT INTO log VALUES ('{dt_str}', '{level}', '{message}')"
-            )
-        elif level != "debug":
-            self.cursor.execute(
-                f"INSERT INTO log VALUES ('{dt_str}', '{level}', '{message}')"
-            )
 
     def logShiftsToDb(self, qry_args):
         """
@@ -234,7 +202,7 @@ class Guider:
         None
         """
         qry = """
-            INSERT INTO autoguider_log_new
+            INSERT INTO autoguider_log
             (night, reference, comparison, stabilised, shift_x, shift_y,
             pre_pid_x, pre_pid_y, post_pid_x, post_pid_y, std_buff_x,
             std_buff_y, culled_max_shift_x, culled_max_shift_y)
@@ -273,7 +241,6 @@ class Guider:
         qry_args = (camera_name, message)
         self.cursor.execute(qry % qry_args)
 
-    # TODO: change location of logfile to be in the same directory as the data
     def logShiftsToFile(self, logfile, loglist, header=False):
         """
         Log the guide corrections to disc. This log is
@@ -455,14 +422,14 @@ class Guider:
             # make another check that the post PID values are not > Max allowed
             # using >= allows for the stabilising runs to get through
             # abs() on -ve duration otherwise throws back an error
-            if pidy > 0 and pidy <= CURRENT_MAX_SHIFT:
+            if pidy > 0 and pidy <= CURRENT_MAX_SHIFT and self.running:
                 guide_time_y = pidy * self.PIX2TIME["+y"]
                 if self.RA_AXIS == "y":
                     guide_time_y = guide_time_y / cos_dec
                 self.telescope.get("PulseGuide")(
                     Direction=self.DIRECTIONS["+y"], Duration=int(guide_time_y)
                 )
-            if pidy < 0 and pidy >= -CURRENT_MAX_SHIFT:
+            if pidy < 0 and pidy >= -CURRENT_MAX_SHIFT and self.running:
                 guide_time_y = abs(pidy * self.PIX2TIME["-y"])
                 if self.RA_AXIS == "y":
                     guide_time_y = guide_time_y / cos_dec
@@ -470,11 +437,16 @@ class Guider:
                     Direction=self.DIRECTIONS["-y"], Duration=int(guide_time_y)
                 )
 
-            # TODO: add timeout
-            while self.telescope.get("IsPulseGuiding"):
+            start_time = time.time()
+            while self.telescope.get("IsPulseGuiding") and self.running:
+                if time.time() - start_time > IS_PULSE_GUIDING_TIMEOUT:
+                    self.logger.warning(
+                        f"Pulse guiding timed out after {IS_PULSE_GUIDING_TIMEOUT} seconds."
+                    )
+                    break
                 time.sleep(0.01)
 
-            if pidx > 0 and pidx <= CURRENT_MAX_SHIFT:
+            if pidx > 0 and pidx <= CURRENT_MAX_SHIFT and self.running:
                 guide_time_x = pidx * self.PIX2TIME["+x"]
                 if self.RA_AXIS == "x":
                     guide_time_x = guide_time_x / cos_dec
@@ -482,7 +454,7 @@ class Guider:
                     Direction=self.DIRECTIONS["+x"], Duration=int(guide_time_x)
                 )
 
-            if pidx < 0 and pidx >= -CURRENT_MAX_SHIFT:
+            if pidx < 0 and pidx >= -CURRENT_MAX_SHIFT and self.running:
                 guide_time_x = abs(pidx * self.PIX2TIME["-x"])
                 if self.RA_AXIS == "x":
                     guide_time_x = guide_time_x / cos_dec
@@ -490,11 +462,23 @@ class Guider:
                     Direction=self.DIRECTIONS["-x"], Duration=int(guide_time_x)
                 )
 
-            # TODO: add timeout
-            while self.telescope.get("IsPulseGuiding"):
+            start_time = time.time()
+            while self.telescope.get("IsPulseGuiding") and self.running:
+                if time.time() - start_time > IS_PULSE_GUIDING_TIMEOUT:
+                    self.logger.warning(
+                        f"Pulse guiding timed out after {IS_PULSE_GUIDING_TIMEOUT} seconds."
+                    )
+                    break
                 time.sleep(0.01)
 
-            self.logMessageToDb(camera_name, "Guide correction Applied")
+            if self.running:
+                self.logMessageToDb(camera_name, "Guide correction Applied")
+            else:
+                self.logMessageToDb(
+                    camera_name,
+                    "Guide correction NOT Applied due to self.running=False",
+                )
+
             # store the original values in the buffer
             # only if we are not stabilising
             if images_to_stabilise < 0:
@@ -503,7 +487,6 @@ class Guider:
             return True, pidx, pidy, sigma_x, sigma_y
         else:
             self.logMessageToDb(camera_name, "Telescope NOT connected!")
-            self.logMessageToDb(camera_name, "Please connect Telescope via ACP!")
             self.logMessageToDb(camera_name, "Ignoring corrections!")
             return False, 0.0, 0.0, 0.0, 0.0
 
@@ -587,7 +570,7 @@ class Guider:
             ref_image, os.path.join(self.reference_dir, os.path.split(ref_image)[-1])
         )
 
-    def waitForImage(self, n_images, camera_name, glob_str):
+    def waitForImage(self, n_images, camera_name, glob_str, wait_time=10):
         """
         Wait for new images.
 
@@ -655,15 +638,19 @@ class Guider:
 
                 # if no new images, wait for a bit
                 else:
-                    time.sleep(self.WAIT_TIME)
+                    total_wait_time = max(wait_time, 30)
+                    elapsed_time = 0
+                    while elapsed_time < total_wait_time and self.running:
+                        time.sleep(0.1)
+                        elapsed_time += 0.1
 
         # return None values if self.running is False
         return None, None, None, None
 
-    def guider_loop(self, camera_name, glob_str):
+    def guider_loop(self, camera_name, glob_str, wait_time=10):
         self.running = True
 
-        self.__log("info", f"Starting guider loop for: {glob_str} images")
+        self.logger.info(f"Starting guider loop for: {glob_str} images")
 
         try:
             while self.running:
@@ -681,7 +668,7 @@ class Guider:
 
                 if n_images == 0:
                     last_file, _, _, _ = self.waitForImage(
-                        n_images, camera_name, glob_str
+                        n_images, camera_name, glob_str, wait_time
                     )
                 else:
                     last_file = max(templist, key=os.path.getctime)
@@ -723,7 +710,7 @@ class Guider:
                 donuts_ref = Donuts(
                     ref_file,
                     normalise=False,
-                    subtract_bkg=True,
+                    subtract_bkg=False,
                     downweight_edges=False,
                     image_class=CustomImageClass,
                 )
@@ -740,7 +727,7 @@ class Guider:
                         current_field,
                         current_filter,
                         current_exptime,
-                    ) = self.waitForImage(n_images, camera_name, glob_str)
+                    ) = self.waitForImage(n_images, camera_name, glob_str, wait_time)
 
                     # to insure file is fully written to disc
                     time.sleep(1)
@@ -870,22 +857,28 @@ class Guider:
                                 std_buff_y,
                             ) = (0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
                         else:
-                            (
-                                applied,
-                                post_pid_x,
-                                post_pid_y,
-                                std_buff_x,
-                                std_buff_y,
-                            ) = self.guide(
-                                pre_pid_x, pre_pid_y, images_to_stabilise, camera_name
-                            )
-                            # !applied means no telescope, break to tomorrow
-                            if not applied:
-                                self.logMessageToDb(
+                            if self.running:
+                                (
+                                    applied,
+                                    post_pid_x,
+                                    post_pid_y,
+                                    std_buff_x,
+                                    std_buff_y,
+                                ) = self.guide(
+                                    pre_pid_x,
+                                    pre_pid_y,
+                                    images_to_stabilise,
                                     camera_name,
-                                    "SHIFT NOT APPLIED, TELESCOPE *NOT* CONNECTED, EXITING",
                                 )
-                                self.running = False
+                                # !applied means no telescope, break to tomorrow
+                                if not applied:
+                                    self.logMessageToDb(
+                                        camera_name,
+                                        "SHIFT NOT APPLIED, TELESCOPE *NOT* CONNECTED, EXITING",
+                                    )
+                                    self.running = False
+                            else:
+                                break
 
                         log_list = [
                             os.path.split(glob_str)[-2],
@@ -908,15 +901,26 @@ class Guider:
                         self.logShiftsToFile(LOGFILE, log_list)
                         # log info to database - enable when DB is running
                         self.logShiftsToDb(tuple(log_list))
+
+                        # log the shifts to the logger
+                        self.logger.info(
+                            "Guider post_pid_x shift: {:.2f}".format(post_pid_x)
+                        )
+                        self.logger.info(
+                            "Guider post_pid_y shift: {:.2f}".format(post_pid_y)
+                        )
+
                         # reset the comparison templist so the nested while(1) loop
                         # can find new images
                         templist = g.glob(glob_str)
                         n_images = len(templist)
         except Exception as e:
             self.running = False
-            self.__log("error", f"Error in guide loop: {str(e)}")
+            self.logger.error(
+                f"Error in guide loop: {str(e)}", exc_info=True, stack_info=True
+            )
 
-        self.__log("info", f"Stopping guider loop for: {glob_str} images")
+        self.logger.info(f"Stopping guider loop for: {glob_str} images")
 
 
 """

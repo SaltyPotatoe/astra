@@ -1,6 +1,6 @@
 temp
 assets
-astra_config.yaml
+astra_config.yml
 
 # images
 *.fits
@@ -11,6 +11,9 @@ src/astra/*.db
 
 # DS_Store
 .DS_Store
+
+# docs/old
+docs/old/*
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

@@ -15,24 +15,24 @@ classifiers = [
     "Programming Language :: Python :: 3",
 ]
 dependencies = [
+    "astrafocus @ git+https://github.com/dgegen/astrafocus.git",
     "astropy",
     "photutils",
     "scipy==1.10.1",
     "twirl",
     "sqlite3worker",
-    "alpyca",
+    "alpyca @ git+https://github.com/ppp-one/alpyca.git",
     "psutil",
     "donuts",
     "httpx",
     "matplotlib",
     "pandas",
-    "fastapi",
+    "fastapi[standard]",
     "pyyaml",
-    "uvicorn[standard]",
 ]
 
 [project.optional-dependencies]
-dev = ["ruff", "black==24.3.0", "pytest"]
+dev = ["ruff", "black==24.3.0", "pytest", "toml"]
 test = ["pytest"]
 docs = [
     "matplotlib",
@@ -42,6 +42,7 @@ docs = [
     "ipywidgets",
     "sphinx-copybutton",
     "docformatter[tomli]",
+    "toml",
 ]
 
 [project.urls]
@@ -49,6 +50,8 @@ docs = [
 "Source" = "https://github.com/ppp-one/astra"
 "Bug Tracker" = "https://github.com/ppp-one/astra/issues"
 
+[project.scripts]
+astra = "astra.main:main"
 
 [build-system]
 requires = ["hatchling", "hatch-vcs"]
@@ -56,6 +59,9 @@ build-backend = "hatchling.build"
 
 [tool.hatch.version]
 source = "vcs"
+
+[tool.hatch.metadata]
+allow-direct-references = true
 
 [tool.black]
 target-version = ["py39"]

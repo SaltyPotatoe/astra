@@ -1,21 +1,15 @@
 import math
 import sqlite3
 import time
-from datetime import UTC, datetime, timedelta
-from typing import Optional, Tuple, Union
+from datetime import datetime, timedelta
+from pathlib import Path
+from typing import Tuple
 
 import astropy.units as u
 import numpy as np
 import pandas as pd
-import twirl
-from astropy.coordinates import AltAz, Angle, SkyCoord, get_sun
-from astropy.io import fits
-from astropy.stats import SigmaClip
+from astropy.coordinates import AltAz, Angle, get_sun
 from astropy.time import Time
-from astropy.units import Quantity
-from astropy.wcs import utils
-from photutils.background import Background2D, MedianBackground
-from scipy import ndimage
 
 
 ## for final fits header
@@ -149,8 +143,8 @@ def time_conversion(jd, location, target):
     lst = time_inp.sidereal_time("mean")
     lstsec = lst.hour * 3600
     ha = Angle(((((lst - target.ra).hour + 12) % 24) - 12) * u.hourangle).to_string(
-        unit=u.hourangle, sep=" "
-    )  # MH - not zero padded but will do for now
+        unit=u.hourangle, sep=" ", pad=True
+    )
 
     return hjd, bjd, lstsec, ha
 
@@ -200,7 +194,7 @@ def hdr_times(hdr, fits_config, location, target):
 
 
 ## for flat fielding
-def is_sun_rising(obs_location):
+def is_sun_rising(obs_location) -> Tuple[bool, bool, AltAz]:
     # sun's position now
     obs_time0 = Time.now()
     sun_position0 = get_sun(obs_time0)
@@ -234,9 +228,8 @@ def is_sun_rising(obs_location):
     return sun_rising, flat_ready, sun_altaz0
 
 
-## pointing
 def db_query(
-    db: str, min_dec: float, max_dec: float, min_ra: float, max_ra: float
+    db: str | Path, min_dec: float, max_dec: float, min_ra: float, max_ra: float
 ) -> pd.DataFrame:
     """
     Queries a federated database for astronomical data within a specified range of declination and right ascension.
@@ -280,205 +273,8 @@ def db_query(
     return df_total
 
 
-def gaia_db_query(
-    center: Union[Tuple[float, float], SkyCoord],
-    fov: Union[float, Quantity],
-    limit: int = 1000,
-    tmass: bool = False,
-    dateobs: Optional[datetime] = None,
-) -> np.ndarray:
-    """
-    Query the Gaia archive to retrieve the RA-DEC coordinates of stars within a given field-of-view (FOV) centered on a given sky position.
-
-    Parameters
-    ----------
-    center : tuple or astropy.coordinates.SkyCoord
-        The sky coordinates of the center of the FOV. If a tuple is given, it should contain the RA and DEC in degrees.
-    fov : float or astropy.units.Quantity
-        The field-of-view of the FOV in degrees. If a float is given, it is assumed to be in degrees.
-    limit : int, optional
-        The maximum number of sources to retrieve from the Gaia archive. By default, it is set to 10000.
-    circular : bool, optional
-        Whether to perform a circular or a rectangular query. By default, it is set to True.
-    tmass : bool, optional
-        Whether to retrieve the 2MASS J magnitudes catelog. By default, it is set to False.
-    dateobs : datetime.datetime, optional
-        The date of the observation. If given, the proper motions of the sources will be taken into account. By default, it is set to None.
-
-    Returns
-    -------
-    np.ndarray
-        An array of shape (n, 2) containing the RA-DEC coordinates of the retrieved sources in degrees.
-
-    Raises
-    ------
-    ImportError
-        If the astroquery package is not installed.
-
-    Examples
-    --------
-    >>> from astropy.coordinates import SkyCoord
-    >>> from twirl import gaia_radecs
-    >>> center = SkyCoord(ra=10.68458, dec=41.26917, unit='deg')
-    >>> fov = 0.1
-    >>> radecs = gaia_radecs(center, fov)
-    """
-
-    if isinstance(center, SkyCoord):
-        ra = center.ra.deg
-        dec = center.dec.deg
-    else:
-        ra, dec = center
-
-    if not isinstance(fov, u.Quantity):
-        fov = fov * u.deg
-
-    if fov.ndim == 1:
-        ra_fov, dec_fov = fov.to(u.deg).value
-    else:
-        ra_fov = fov[0].to(u.deg).value
-        dec_fov = fov[1].to(u.deg).value
-
-    min_dec = dec - dec_fov / 2
-    max_dec = dec + dec_fov / 2
-    min_ra = ra - ra_fov / 2
-    max_ra = ra + ra_fov / 2
-
-    table = db_query("pointing.db", min_dec, max_dec, min_ra, max_ra)
-    if tmass:
-        table = table.sort_values(by=["j_m"]).reset_index(drop=True)
-    else:
-        table = table.sort_values(by=["phot_g_mean_mag"]).reset_index(drop=True)
-
-    table.replace("", np.nan, inplace=True)
-    table.dropna(inplace=True)
-
-    # limit number of stars
-    table = table[0:limit]
-
-    # add proper motion to ra and dec
-    if dateobs is not None:
-        # calculate fractional year
-        dateobs = dateobs.year + (dateobs.timetuple().tm_yday - 1) / 365.25  # type: ignore
-
-        years = dateobs - 2015.5  # type: ignore
-        table["ra"] += years * table["pmra"] / 1000 / 3600
-        table["dec"] += years * table["pmdec"] / 1000 / 3600
-
-    return np.array([table["ra"].values, table["dec"].values]).T
-
-
-def pointing(filepath, ra, dec):
-    # open image
-    with fits.open(filepath) as hdu:
-        header = hdu[0].header
-        data = hdu[0].data
-
-    # clean image
-    sigma_clip = SigmaClip(sigma=3.0)
-    bkg_estimator = MedianBackground()
-
-    bkg = Background2D(
-        data,
-        (32, 32),
-        filter_size=(3, 3),
-        sigma_clip=sigma_clip,
-        bkg_estimator=bkg_estimator,
-    )
-    bkg_clean = data - bkg.background
-
-    med_clean = ndimage.median_filter(bkg_clean, size=5, mode="mirror")
-    band_corr = np.median(med_clean, axis=1).reshape(-1, 1)
-    image_clean = med_clean - band_corr
-
-    # center of image, convert to ra, dec in degrees
-    ra_unit = u.deg
-    dec_unit = u.deg
-
-    center = SkyCoord(ra, dec, unit=[ra_unit, dec_unit])
-
-    # image fov
-    shape = image_clean.shape
-    plate_scale = np.arctan((header["XPIXSZ"] * 1e-6) / (header["FOCALLEN"] * 1e-3)) * (
-        180 / np.pi
-    )  # deg/pixel
-    fovx = (1 / np.abs(np.cos(center.dec.rad))) * shape[0] * plate_scale
-    fovy = shape[1] * plate_scale
-
-    # detect stars in the image
-    stars = twirl.find_peaks(image_clean, threshold=5)
-
-    gaia_limit = len(stars) * 2
-    star_limit = len(stars)
-    if len(stars) < 4:
-        raise Exception("Not enough stars detected for plate solve")
-    elif len(stars) > 12:
-        gaia_limit = 18
-        star_limit = 12
-
-    stars = stars[0:star_limit]
-
-    # get gaia stars in the field of view
-    dateobs = pd.to_datetime(header["DATE-OBS"])
-    gaias = gaia_db_query(center, (fovx, fovy), tmass=True, dateobs=dateobs)[
-        0:gaia_limit
-    ]
-
-    wcs = twirl.compute_wcs(stars, gaias)
-    real_center = utils.pixel_to_skycoord(
-        image_clean.shape[1] / 2, image_clean.shape[0] / 2, wcs
-    )
-    offset = np.array(
-        [real_center.ra.deg - center.ra.deg, real_center.dec.deg - center.dec.deg]
-    )
-
-    angular_separation = center.separation(real_center)
-
-    # convert gaia stars to pixel coordinates
-    gaias_pixel = np.array(SkyCoord(gaias, unit="deg").to_pixel(wcs)).T
-
-    # import matplotlib.pyplot as plt
-    # import matplotlib
-    # matplotlib.use('agg')
-    # fig = plt.figure(figsize=(8,8))
-
-    # med = np.median(image_clean)
-    # std = np.std(image_clean)
-    # plt.imshow(image_clean, cmap="Greys_r", vmax=3*std + med, vmin=med - 1*std)
-
-    # plt.scatter(*stars.T, s=80, facecolors='none', edgecolors='tab:blue')
-
-    # plt.scatter(*gaias_pixel.T, s=120, facecolors='none', edgecolors='r')
-
-    # plt.plot(image_clean.shape[1]/2,image_clean.shape[0]/2, 'o')
-
-    # plt.plot(*utils.skycoord_to_pixel(SkyCoord(ra, dec, unit=[ra_unit, dec_unit]), wcs), 'o')
-
-    # fig.tight_layout()
-    # fig.savefig('pointing.jpg', dpi=300, format='jpg')
-
-    #  if offset is too large, consider plate solve failed
-    if abs(angular_separation.deg) > max(plate_scale * np.array(shape)):
-        raise Exception("Plate solve failed, offset larger than field of view")
-
-    # iterate through gaia stars and find the closest star in the image
-    count = 0
-    for x, y in gaias_pixel:
-        for i, j in stars:
-            # if the distance between the gaia star and the star
-            # in the image is less than 10 pixels, count it as a match
-            if np.sqrt((x - i) ** 2 + (y - j) ** 2) < 10:
-                count += 1
-
-    # if more than 4 stars match, consider plate solve successful
-    if count < 4:
-        raise Exception("Plate solve failed, not enough stars matched")
-
-    return offset[0], offset[1], wcs, angular_separation
-
-
 ## SPECULOOS EDIT
-def check_astelos_error(telescope):
+def check_astelos_error(telescope, close=False):
     """
     Check astelos telescope status list property
     """
@@ -517,13 +313,21 @@ def check_astelos_error(telescope):
         ["ERR_RunDevError", "Working pressure suddenly lost", "2", "HA"],
         [
             "ERR_DeviceError",
-            "axis #0\\| amplifier fault #07H\\| safe torque-off circuit fault",
+            "axis #1\\| amplifier fault #07H\\| safe torque-off circuit fault",
             "2",
             "DEC",
         ],
         ["ERR_RunDevError", "Working pressure suddenly lost", "2", "DEC"],
         ["ERR_DeviceWarn", "Malformed telegram from GPS", "4", "LOCAL"],
     ]
+    if close:
+        slit_error = [
+            ["ERR_DeviceError", "axis (1)\\| BOTH LIMITS (code=128)", "2", "DOME[0]"],
+            ["ERR_DeviceError", "axis (1)\\| BOTH LIMITS (code=128)", "2", "DOME[1]"],
+            ["ERR_DeviceError", "axis (1)\\| EXTERN (code=32)", "2", "DOME[0]"],
+            ["ERR_DeviceError", "axis (1)\\| EXTERN (code=32)", "2", "DOME[1]"],
+        ]
+        allowed_err.extend(slit_error)
 
     df_allowed = pd.DataFrame(
         allowed_err, columns=["error", "detail", "level", "component"]
@@ -541,7 +345,10 @@ def check_astelos_error(telescope):
             elements = part.split(";")
 
             for element in elements:
-                error_detail = element.split("|")
+                error_detail = element.replace("\\|", "[ESCAPED_PIPE]").split("|")
+                error_detail = [
+                    item.replace("[ESCAPED_PIPE]", "\\|") for item in error_detail
+                ]
 
                 if len(error_detail) == 4:
                     if not error_detail[1].isdigit():
@@ -576,31 +383,28 @@ def check_astelos_error(telescope):
         return False, df_list, messages
 
 
-def ack_astelos_error(telescope, valid, all_errors, messages):
+def ack_astelos_error(telescope, valid, all_errors, messages, close=False):
     """
     Acknowledge error if valid
 
     """
 
     start_time = time.time()
-    # TODO: add Daniel's code
 
     while valid and len(all_errors) > 0:
+        # derive system eror level
+        sys_level = int(np.sum(np.unique(np.array(all_errors.level.astype(int)))))
+
         # clear errors
-        for i, row in all_errors.iterrows():
-            telescope.get(
-                "CommandBlind",
-                Command=f"TELESCOPE.STATUS.CLEAR_ERROR={row['level']}",
-                Raw=True,
-            )
-            time.sleep(2)
-
-        # telescope.get('CommandBlind', Command = "TELESCOPE.STATUS.CLEAR_ERROR=2", Raw = True)
-
-        time.sleep(5)
+        telescope.get(
+            "CommandBlind",
+            Command=f"TELESCOPE.STATUS.CLEAR_ERROR={sys_level}",
+            Raw=True,
+        )
+        time.sleep(2)
 
         # check telescope status
-        valid, all_errors, messages = check_astelos_error(telescope)
+        valid, all_errors, messages = check_astelos_error(telescope, close=close)
 
         if time.time() - start_time > 120:  # 2 minutes hardcoded limit
             raise TimeoutError("Astelos error acknowledgement timed out")
