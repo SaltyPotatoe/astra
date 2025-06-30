@@ -685,8 +685,21 @@ class Observatory:
                             weather_log_warning = (
                                 False  # reset weather_log_warning flag
                             )
+                    elif (
+                        rows[0][0] > 0 and internal_safety
+                    ):  # just in case isSafe value switches during realtime check
+                        self.weather_safe = False
+
+                        # log message saying weather unsafe
+                        if weather_log_warning is False:
+                            self.logger.warning(
+                                "Weather unsafe from SafetyMonitor IsSafe history, internal safety monitor is True. "
+                                "Are the internal safety monitor limits higher than SafetyMonitor values?"
+                            )
+                            weather_log_warning = True
+
+                        self.close_observatory()  # checks if already closed and closes if not
                     else:
-                        self.weather_safe = False  # set here too just in case watchdog started after weather unsafe?
                         weather_log_warning = True
 
                 except Exception as e:
