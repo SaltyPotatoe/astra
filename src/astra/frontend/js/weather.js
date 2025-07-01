@@ -53,7 +53,8 @@ function addUnits(parameter, weather_safety_limits) {
     if (
         parameter === "Temperature" ||
         parameter === "DewPoint" ||
-        parameter === "SkyTemperature"
+        parameter === "SkyTemperature" ||
+        parameter === "RelativeSkyTemp"
     ) {
         weather_safety_limits[parameter]["unit"] = "°C";
     } else if (parameter === "Humidity") {
@@ -90,13 +91,14 @@ function plotWeather(data, observatory, update) {
     // sort the weather parameters such that temperature and dew point are first and then humidity, then the rest
     weather_parameters.sort((a, b) => {
         const priority = {
-            SkyTemperature: 1,
+            RelativeSkyTemp: 1,
             RainRate: 2,
             WindSpeed: 3,
             WindGust: 4,
             Humidity: 5,
-            Temperature: 6,
-            DewPoint: 7,
+            SkyTemperature: 6,
+            Temperature: 8,
+            DewPoint: 9,
         };
         return (priority[a] || Infinity) - (priority[b] || Infinity);
     });

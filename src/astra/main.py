@@ -323,53 +323,64 @@ async def polling(observatory: str, device_type: str, day: float = 1):
     q = f"""SELECT * FROM polling WHERE device_type = '{device_type}' AND datetime > datetime('now', '-{day} day')"""
 
     df = pd.read_sql_query(q, db)
-
     db.close()
 
-    # make new dataframe with f as columns and device_value as their values and datetime as index
+    # Pivot: datetime as index, device_command as columns
     df = df.pivot(index="datetime", columns="device_command", values="device_value")
 
-    # make sure your index is a datetime index
+    # Ensure datetime index and numeric values
     df.index = pd.to_datetime(df.index)
     df = df.sort_index()
     df = df.apply(pd.to_numeric, errors="coerce")
 
+    # Latest values
     latest = {}
     for col in df.columns:
-        latest[col] = df[col].dropna().iloc[-1]
+        latest[col] = df[col].dropna().iloc[-1] if not df[col].dropna().empty else None
 
-    # group by 60 seconds
+    if "SkyTemperature" in latest and "Temperature" in latest:
+        latest["RelativeSkyTemp"] = latest["SkyTemperature"] - latest["Temperature"]
+
+    # Group by 60s
     df_groupby = df.groupby(pd.Grouper(freq="60s")).mean()
     df_groupby = df_groupby.dropna()
 
-    # safety limits, TODO: make this nicer
+    # Add RelativeSkyTemp = SkyTemperature - Temperature
+    if "SkyTemperature" in df_groupby.columns and "Temperature" in df_groupby.columns:
+        df_groupby["RelativeSkyTemp"] = (
+            df_groupby["SkyTemperature"] - df_groupby["Temperature"]
+        )
+
     obs = OBSERVATORIES[observatory]
-    closing_limits = obs.config["ObservingConditions"][0]["closing_limits"]
-    safety_limits = {}
+    if "ObservingConditions" in obs.config:
+        # Safety limits
+        closing_limits = obs.config["ObservingConditions"][0]["closing_limits"]
+        safety_limits = {}
 
-    for key in closing_limits:
-        safety_limits[key] = closing_limits[key]
+        for key in closing_limits:
+            upper_val = float("inf")
+            lower_val = float("-inf")
+            for item in closing_limits[key]:
+                if item.get("upper", float("inf")) < upper_val:
+                    upper_val = item["upper"]
+                if item.get("lower", float("-inf")) > lower_val:
+                    lower_val = item["lower"]
 
-        # find smallest value upper and largest value lower for each key
-        upper_val = float("inf")
-        lower_val = float("-inf")
-        for item in closing_limits[key]:
-            if item.get("upper", float("inf")) < upper_val:
-                upper_val = item["upper"]
+            safety_limits[key] = {
+                "upper": upper_val if upper_val != float("inf") else None,
+                "lower": lower_val if lower_val != float("-inf") else None,
+            }
 
-            if item.get("lower", float("-inf")) > lower_val:
-                lower_val = item["lower"]
-
-        safety_limits[key] = {
-            "upper": upper_val if upper_val != float("inf") else None,
-            "lower": lower_val if lower_val != float("-inf") else None,
+        return {
+            "data": df_groupby.reset_index().to_dict(orient="records"),
+            "safety_limits": safety_limits,
+            "latest": latest,
         }
-
-    return {
-        "data": df_groupby.reset_index().to_dict(orient="records"),
-        "safety_limits": safety_limits,
-        "latest": latest,
-    }
+    else:
+        return {
+            "data": df_groupby.reset_index().to_dict(orient="records"),
+            "latest": latest,
+        }
 
 
 @app.get("/api/log/{observatory}")
@@ -515,15 +526,15 @@ async def websocket_endpoint(websocket: WebSocket, observatory: str):
                     dt = (
                         dt_tracking
                         if tracking
-                        else dt_slewing
-                        if slewing
-                        else dt_tracking
+                        else dt_slewing if slewing else dt_tracking
                     )
 
                     try:
                         polled["RightAscension"]["value"] = polled["RightAscension"][
                             "value"
-                        ] * (360 / 24)  # convert to degrees
+                        ] * (
+                            360 / 24
+                        )  # convert to degrees
                     except:
                         pass
 

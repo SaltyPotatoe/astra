@@ -882,37 +882,51 @@ class Observatory:
             if "closing_limits" in self.config["ObservingConditions"][0]:
                 closing_limits = self.config["ObservingConditions"][0]["closing_limits"]
 
-                for parameter in closing_limits:
-                    limits = closing_limits[parameter]
+                for parameter, limits in closing_limits.items():
                     for limit in limits:
                         max_safe_duration = limit.get("max_safe_duration", 0)
-                        lower_limit = limit.get("lower", None)
-                        upper_limit = limit.get("upper", None)
+                        lower_limit = limit.get("lower")
+                        upper_limit = limit.get("upper")
+
+                        self.logger.debug(
+                            f"Checking internal safety monitor for {parameter} with limits {lower_limit} - {upper_limit}, max_safe_duration {max_safe_duration} minutes"
+                        )
+
+                        if parameter == "RelativeSkyTemp":
+                            value_expr = "(CAST(a.device_value AS FLOAT) - CAST(b.device_value AS FLOAT))"
+                            join_clause = """
+                            JOIN polling b 
+                            ON b.device_type = 'ObservingConditions'
+                            AND b.device_command = 'Temperature'
+                            AND ABS(strftime('%s', a.datetime) - strftime('%s', b.datetime)) <= 2.5
+                            """
+                            source_table = "polling a"
+                            command_filter = "a.device_type = 'ObservingConditions' AND a.device_command = 'SkyTemperature'"
+                            datetime_field = "a.datetime"
+                        else:
+                            value_expr = "CAST(device_value AS FLOAT)"
+                            join_clause = ""
+                            source_table = "polling"
+                            command_filter = f"device_type = 'ObservingConditions' AND device_command = '{parameter}'"
+                            datetime_field = "datetime"
 
                         if lower_limit is not None and upper_limit is not None:
-                            q = f"""
-                            SELECT COUNT(*), MAX(datetime) FROM polling 
-                            WHERE device_type = 'ObservingConditions' 
-                            AND device_command = '{parameter}' 
-                            AND (CAST(device_value AS FLOAT) < {lower_limit} OR CAST(device_value AS FLOAT) > {upper_limit})
-                            AND datetime > datetime('now', '-{max_safe_duration} minutes')
-                            """
+                            condition = f"({value_expr} < {lower_limit} OR {value_expr} > {upper_limit})"
                         elif lower_limit is not None:
-                            q = f"""
-                            SELECT COUNT(*), MAX(datetime) FROM polling 
-                            WHERE device_type = 'ObservingConditions' 
-                            AND device_command = '{parameter}' 
-                            AND CAST(device_value AS FLOAT) < {lower_limit}
-                            AND datetime > datetime('now', '-{max_safe_duration} minutes')
-                            """
+                            condition = f"{value_expr} < {lower_limit}"
                         elif upper_limit is not None:
-                            q = f"""
-                            SELECT COUNT(*), MAX(datetime) FROM polling 
-                            WHERE device_type = 'ObservingConditions' 
-                            AND device_command = '{parameter}' 
-                            AND CAST(device_value AS FLOAT) > {upper_limit}
-                            AND datetime > datetime('now', '-{max_safe_duration} minutes')
-                            """
+                            condition = f"{value_expr} > {upper_limit}"
+                        else:
+                            continue  # no limits defined
+
+                        q = f"""
+                        SELECT COUNT(*), MAX({datetime_field})
+                        FROM {source_table}
+                        {join_clause}
+                        WHERE {command_filter}
+                        AND {condition}
+                        AND {datetime_field} > datetime('now', '-{max_safe_duration} minutes')
+                        """
 
                         rows = self.cursor.execute(q)
 
