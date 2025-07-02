@@ -15,6 +15,7 @@ function color_palette(parameter) {
         SkyBrightness: "rgba(255, 215, 0, 0.5)", // Bright gold for sky brightness
         SkyQuality: "rgba(186, 85, 211, 0.5)", // Medium orchid, more readable
         SkyTemperature: "rgba(46, 129, 187, 0.5)", // Sea blue, deeper tone
+        RelativeSkyTemp: "rgba(255, 105, 180, 0.5)", // Hot pink, more visible
         StarFWHM: "rgba(221, 160, 221, 0.5)", // Plum, softer and more visible
         Temperature: "rgba(255, 99, 71, 0.5)", // Tomato red, vibrant but not too harsh
         WindDirection: "rgba(100, 149, 237, 0.5)", // Cornflower blue
