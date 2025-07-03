@@ -71,6 +71,7 @@ autodoc_default_options = {
 }
 autosummary_generate = True
 autodoc_preserve_defaults = True  # Prevents evaluation of default values
+autoclass_content = "both"
 
 # Napoleon settings
 napoleon_google_docstring = True

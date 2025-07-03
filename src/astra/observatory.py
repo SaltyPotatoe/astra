@@ -1,3 +1,37 @@
+"""
+Observatory Control System for Autonomous Astronomical Operations.
+
+This module provides the core Observatory class for managing and controlling
+astronomical observatories. It handles device coordination, safety monitoring,
+automated observations, and data acquisition for professional astronomical
+facilities.
+
+The module integrates multiple subsystems including:
+    - Alpaca-compatible device drivers for telescopes, cameras, and accessories
+    - Real-time safety and weather monitoring systems
+    - Automated observation schedule execution
+    - Database logging and FITS header management
+    - Thread-safe multiprocessing architecture
+
+Key Components:
+    - Observatory: Main control class for observatory operations
+    - Device Management: Alpaca protocol device coordination
+    - Safety Systems: Weather monitoring and error handling
+    - Scheduling: Automated observation execution
+    - Calibration: Automated flat, dark, and bias frame acquisition
+    - Pointing & Guiding: Telescope pointing correction and guiding
+
+Usage:
+    This module is typically used as part of the ASTRA observatory automation
+    framework. The Observatory class is instantiated with a configuration file
+    and then manages all aspects of observatory operation.
+
+Note:
+    This software is designed for professional astronomical observatories.
+    Proper configuration of safety systems is essential to prevent equipment
+    damage and ensure personnel safety.
+"""
+
 import logging
 import math
 import os
@@ -7,7 +41,6 @@ from datetime import UTC, datetime
 from multiprocessing import Manager
 from pathlib import Path
 from threading import Thread
-from typing import Tuple
 
 import astropy.units as u
 import numpy as np
@@ -50,6 +83,58 @@ CONFIG = Config()
 
 
 class Observatory:
+    """
+    Autonomous astronomical observatory control system.
+
+    The Observatory class provides comprehensive control and automation for astronomical
+    observatories, managing telescopes, cameras, filter wheels, focusers, domes, and
+    other equipment. It coordinates complex observation sequences, safety monitoring,
+    device management, and data acquisition for autonomous or semi-autonomous operation.
+
+    Key Features:
+        - Multi-device coordination and control via Alpaca protocol
+        - Autonomous observation scheduling and execution
+        - Real-time safety monitoring and weather assessment
+        - Automated calibration sequences (flats, darks, bias frames)
+        - Autoguiding and pointing correction capabilities
+        - Comprehensive error handling and recovery
+        - Database logging of all operations and device states
+        - FITS header management and metadata completion
+        - Thread-safe multiprocessing architecture
+
+    Observatory Operations:
+        - Schedule-driven autonomous observations
+        - Real-time device monitoring and polling
+        - Safety watchdog with weather integration
+        - Automatic dome and telescope control
+        - Image acquisition and processing pipelines
+        - Pointing model generation and refinement
+        - Focus maintenance and autofocus routines
+        - Calibration frame acquisition
+
+    Safety Systems:
+        - Continuous weather monitoring integration
+        - Device health checking and error detection
+        - Automatic observatory closure on unsafe conditions
+
+    Architecture:
+        - Thread-based concurrent operations
+        - Database-backed logging and state persistence
+        - Queue-based multiprocessing communication
+        - Configuration-driven device management
+        - Modular sequence and action execution
+
+    Usage:
+        Typically instantiated with a configuration file that defines the observatory
+        layout, device connections, safety parameters, and operational settings.
+        The observatory can then be operated manually or through automated scheduling.
+
+    Note:
+        This class is designed for professional astronomical observatories and
+        requires proper configuration of safety systems and device drivers.
+        Improper use could result in equipment damage or safety hazards.
+    """
+
     def __init__(
         self,
         config_filename: str,
@@ -57,14 +142,35 @@ class Observatory:
         speculoos: bool = False,
     ):
         """
-        Initialize the Astra object.
+        Initialize the Observatory object.
+
+        Sets up the observatory configuration, database, logging, device management,
+        and scheduling systems. Creates a queue for multiprocessing and initializes
+        all necessary attributes for observatory operations.
 
         Parameters:
-            config_filename (str): path to the configuration file for the observatory.
-            truncate_schedule (bool): if True, the schedule is truncated by a factor of 100 and moved to the current time.
+            config_filename (str): Path to the configuration file for the observatory.
+                The filename is used to derive the observatory name.
+            truncate_schedule (bool, optional): If True, the schedule is truncated by a
+                factor of 100 and moved to the current time. Defaults to False.
+            speculoos (bool, optional): If True, enables SPECULOOS-specific logic
+                and error handling. Defaults to False.
 
         Attributes:
-
+            name (str): Observatory name derived from config filename.
+            cursor (Sqlite3Worker): Database cursor for logging and data storage.
+            logger (logging.Logger): Logger instance for the observatory.
+            _config (ObservatoryConfig): Observatory configuration object.
+            fits_config (pd.DataFrame): FITS header configuration.
+            threads (list): List of running threads.
+            queue (Queue): Multiprocessing queue for communication.
+            heartbeat (dict): System status information.
+            error_free (bool): Flag indicating error-free operation.
+            weather_safe (bool): Flag indicating weather safety status.
+            schedule_running (bool): Flag indicating if schedule is running.
+            robotic_switch (bool): Flag for robotic operation mode.
+            devices (dict): Dictionary of connected devices.
+            guider (dict): Dictionary of guiding objects per telescope.
         """
 
         # set observatory name
@@ -164,6 +270,20 @@ class Observatory:
 
     @property
     def config(self) -> ObservatoryConfig:
+        """
+        Get the observatory configuration, reloading if the file has been modified.
+
+        This property provides access to the observatory configuration and automatically
+        reloads it if the underlying configuration file has been modified since the
+        last access.
+
+        Returns:
+            ObservatoryConfig: The current observatory configuration object.
+
+        Note:
+            If the configuration is reloaded, devices may need to be restarted
+            (TODO: implement automatic device restart).
+        """
         if self._config.is_outdated():
             self.logger.info("Config file modified, reloading.")
             self._config.load()
@@ -174,10 +294,20 @@ class Observatory:
 
     def create_db(self) -> Sqlite3Worker:
         """
-        Creates a new database with the given configuration file name.
+        Create and initialize the observatory database.
+
+        Creates a SQLite database for storing observatory data including device polling
+        information, image metadata, and log entries. The database includes three main
+        tables: polling (device status data), images (image file information), and
+        log (system log messages).
 
         Returns:
-            cursor (Sqlite3Worker): The cursor object for the newly created database.
+            Sqlite3Worker: The database cursor object for executing queries and managing
+            the database connection with a maximum queue size of 200.
+
+        Note:
+            The database file is created in the logs directory using the observatory
+            name as the filename with a .db extension.
         """
 
         db_name = CONFIG.paths.logs / f"{self.name}.db"
@@ -211,9 +341,21 @@ class Observatory:
 
     def backup(self) -> None:
         """
-        Backs up the database tables of previous 24 hours into csv files.
+        Back up database tables from the previous 24 hours to CSV files.
 
-        Checks if disk drive is filling up
+        Creates timestamped CSV backups of the main database tables (polling, log,
+        autoguider_log, autoguider_info_log) and stores them in an archive directory.
+        Also monitors disk usage and logs a warning if disk usage exceeds 90%.
+
+        The backup process:
+            1. Checks available disk space and warns if usage > 90%
+            2. Creates an archive directory if it doesn't exist
+            3. Exports specified database tables to timestamped CSV files
+            4. Logs the backup completion or any errors encountered
+
+        Raises:
+            Exception: Any errors during the backup process are logged and added
+                to the error_source list for monitoring.
         """
 
         try:
@@ -268,37 +410,25 @@ class Observatory:
             )
             self.logger.error(f"Error backing up database: {str(e)}")
 
-    def read_config(self, yaml_filename: str) -> dict:
-        """
-        Reads a YAML configuration file and returns a dictionary containing its contents.
-
-        Parameters:
-            config_filename (str): The path to the YAML configuration file.
-
-        Returns:
-            dict: A dictionary containing the contents of the YAML configuration file.
-        """
-
-        self.logger.info("Reading config file")
-
-        observatory = {}
-        with open(yaml_filename, "r") as stream:
-            try:
-                observatory = yaml.safe_load(stream)
-                self.logger.info(f"Config file {yaml_filename} read")
-            except yaml.YAMLError as exc:
-                self.logger.error(f"Error reading config file {yaml_filename}: {exc}")
-
-        return observatory
-
     def load_devices(self) -> dict[str, dict[str, AlpacaDevice]]:
         """
-        This method iterates through the observatory configuration, creating and starting
-        device objects for each defined device.
+        Load and initialize all Alpaca devices from the observatory configuration.
+
+        Iterates through the observatory configuration, creating AlpacaDevice objects
+        for each defined device. Devices are categorized by type (Telescope, Camera,
+        FilterWheel, etc.) and stored in a nested dictionary structure.
 
         Returns:
-            devices (dict): A dictionary containing initialized device objects, categorized
-            by device type.
+            dict[str, dict[str, AlpacaDevice]]: A nested dictionary where the outer
+            keys are device types and inner keys are device names, with values
+            being the initialized AlpacaDevice objects.
+
+        Note:
+            - Debug mode affects device initialization parameters
+            - The 'Misc' configuration section is skipped as it contains
+              non-device settings
+            - Each device is initialized with its specific configuration parameters
+              including IP address, port, and device number
         """
 
         self.logger.info("Loading devices")
@@ -341,10 +471,28 @@ class Observatory:
 
     def connect_all(self) -> None:
         """
-        Connects to all loaded devices and starts polling at specific intervals
-        to retrieve non-fixed FITS headers. The polling interval is 5 seconds for most
-        devices and 1 second for the SafetyMonitor.
+        Connect to all loaded devices and start polling for FITS header data.
 
+        Establishes connections to all initialized devices and begins regular polling
+        of device properties needed for FITS headers. Different polling intervals
+        are used based on device criticality:
+        - Most devices: 5-second intervals
+        - SafetyMonitor: 1-second intervals for safety-critical data
+
+        The method:
+        1. Connects to all devices in the devices dictionary
+        2. Starts polling threads for non-fixed FITS header properties
+        3. Sets up special high-frequency polling for safety monitors
+        4. Starts the watchdog process after all connections are established
+
+        Raises:
+            Exception: Device connection errors are logged and added to error_source,
+                but do not prevent other devices from being connected.
+
+        Note:
+            - SPECULOOS observatories skip focuser connection due to compatibility issues
+            - A 1-second delay is added after connections before starting the watchdog
+              to ensure devices are ready
         """
 
         self.logger.info("Connecting to devices")
@@ -435,11 +583,21 @@ class Observatory:
 
     def pause_polls(self, device_types: list = None) -> None:
         """
-        This method pauses the polling of all devices, or a subset of devices if specified.
+        Pause polling for specified device types or all devices.
+
+        Temporarily stops the regular polling of device properties. This is useful
+        during critical operations where device communication needs to be minimized
+        or when devices need to be accessed exclusively by other processes.
 
         Parameters:
-            device_types (list, optional): A list of device types to pause polling. Defaults to None.
+            device_types (list, optional): A list of device type strings to pause
+                polling for (e.g., ['Telescope', 'Camera']). If None, pauses
+                polling for all device types. Defaults to None.
 
+        Note:
+            - Only device types that exist in the devices dictionary will be affected
+            - Polling can be resumed using the resume_polls() method
+            - This is commonly used in SPECULOOS operations before critical commands
         """
 
         if device_types is not None:
@@ -468,11 +626,21 @@ class Observatory:
 
     def resume_polls(self, device_types: list = None) -> None:
         """
-        This method resumes the polling of all devices, or a subset of devices if specified.
+        Resume polling for specified device types or all devices.
+
+        Restarts the regular polling of device properties that was previously
+        paused using pause_polls(). This restores normal device monitoring
+        and data collection for FITS headers.
 
         Parameters:
-            device_types (list, optional): A list of device types to resume polling. Defaults to None.
+            device_types (list, optional): A list of device type strings to resume
+                polling for (e.g., ['Telescope', 'Camera']). If None, resumes
+                polling for all device types. Defaults to None.
 
+        Note:
+            - Only device types that exist in the devices dictionary will be affected
+            - This should be called after pause_polls() to restore normal operation
+            - Errors during resume are logged but don't prevent other devices from resuming
         """
 
         if device_types is not None:
@@ -501,12 +669,22 @@ class Observatory:
 
     def start_watchdog(self) -> None:
         """
-        Start the watchdog thread if it is not already running.
+        Start the observatory watchdog monitoring thread.
 
-        This method initializes and starts a new thread responsible for monitoring
-        certain aspects of the system. If the watchdog thread is already running,
-        it logs a warning and takes no action.
+        Initializes and starts a daemon thread that runs the watchdog() method
+        to continuously monitor observatory safety, weather conditions, device
+        health, and system status. The watchdog is essential for autonomous
+        operation and safety.
 
+        The method:
+        1. Checks if watchdog is already running to prevent duplicates
+        2. Creates a new daemon thread running the watchdog() method
+        3. Adds the thread to the threads list for tracking
+
+        Note:
+            - If watchdog is already running, logs a warning and returns
+            - The watchdog thread is marked as a daemon thread
+            - The thread is automatically tracked in the observatory's thread list
         """
 
         if self.watchdog_running is True:
@@ -527,15 +705,34 @@ class Observatory:
 
     def watchdog(self) -> None:
         """
-        Periodically monitors various aspects of the observatory's operation and takes appropriate actions in case of issues.
+        Main observatory monitoring loop for safety and operational status.
 
-        This function performs the following checks and actions:
+        Continuously monitors critical observatory systems and takes appropriate
+        actions to ensure safe and efficient operation. The watchdog is the
+        central control system that coordinates all observatory activities.
 
-        - Periodically checks the SafetyMonitor's status, telescope altitude, system errors, and device responsiveness.
-        - If the SafetyMonitor indicates unsafe conditions, it closes the observatory.
-        - Starts the schedule independently of weather conditions, running only calibration sequences when weather is unsafe.
-        - Monitors for system errors and handles them as necessary.
+        Key monitoring functions:
+        - Safety monitor status and weather conditions
+        - Device health and responsiveness
+        - System errors and error recovery
+        - Schedule execution and timing
+        - System resource usage (CPU, memory, disk)
+        - Telescope altitude limits and safety boundaries
 
+        Automated actions taken:
+        - Close observatory when unsafe conditions detected
+        - Start/stop scheduling based on conditions
+        - Handle system errors and device failures
+        - Perform daily database backups
+        - Update system heartbeat for external monitoring
+
+        The watchdog runs in a continuous loop with 0.5-second intervals and
+        coordinates with the schedule runner to ensure safe autonomous operation.
+
+        Note:
+            - Exits when watchdog_running flag is set to False
+            - Sets schedule_running and robotic_switch to False on exit
+            - Handles both weather-dependent and weather-independent operations
         """
 
         self.logger.info("Starting watchdog")
@@ -870,10 +1067,29 @@ class Observatory:
         self.watchdog_running = False
         self.logger.warning("Watchdog stopped")
 
-    def internal_safety_weather_monitor(self) -> float:
+    def internal_safety_weather_monitor(self) -> tuple[bool, float, float]:
         """
-        This method monitors the internal safety of the observatory and the weather conditions.
+        Monitor internal safety systems and weather conditions.
 
+        Evaluates weather conditions against configured safety limits and determines
+        if operations can continue safely. Checks observing conditions parameters
+        against their defined closing limits and calculates time to safe operation.
+
+        Returns:
+            tuple: A tuple containing:
+                - bool: True if weather conditions are safe for operation
+                - float: Time in seconds until conditions become safe (0 if already safe)
+                - float: Maximum safe duration in seconds for current conditions
+
+        The method examines each parameter in the closing_limits configuration:
+        - Compares current values against upper and lower thresholds
+        - Calculates time until conditions improve if currently unsafe
+        - Determines maximum safe operating duration under current conditions
+
+        Note:
+            - Returns (True, 0, 0) if no ObservingConditions devices are configured
+            - Used by the watchdog to make decisions about observatory operations
+            - Critical for autonomous safety management
         """
 
         longest_time_to_safe = 0
@@ -953,6 +1169,27 @@ class Observatory:
         )
 
     def check_devices_alive(self) -> bool:
+        """
+        Check if all connected devices are responsive and alive.
+
+        Iterates through all loaded devices and tests their responsiveness by
+        calling the is_alive() method. This helps detect communication failures,
+        device crashes, or network issues that could affect observatory operations.
+
+        Returns:
+            bool: True if all devices are responsive, False if any device fails
+                to respond or encounters an error.
+
+        Side Effects:
+            - Adds unresponsive devices to error_source list for monitoring
+            - Logs error messages for each unresponsive device
+            - Returns False immediately if any device fails
+
+        Note:
+            - Called regularly by the watchdog for continuous health monitoring
+            - Critical for detecting device failures before they affect observations
+            - Used to trigger error handling and recovery procedures
+        """
         for device_type in self.devices:
             for device_name in self.devices[device_type]:
                 try:
@@ -980,6 +1217,34 @@ class Observatory:
         return True
 
     def update_heartbeat(self) -> None:
+        """
+        Update the observatory heartbeat with current system status information.
+
+        Creates a comprehensive status snapshot of the observatory including system
+        health, device status, resource usage, and operational state. This heartbeat
+        information is used for monitoring and debugging observatory operations.
+
+        The heartbeat includes:
+        - Current timestamp with millisecond precision
+        - Error status and error source details
+        - Weather safety status
+        - Schedule execution status
+        - System resource usage (CPU, memory, disk)
+        - Active thread information
+        - Device polling status for all connected devices
+        - Monitor action queue status
+
+        This information is typically used by:
+        - External monitoring systems
+        - Web interfaces for observatory status
+        - Debugging and troubleshooting
+        - Health check systems
+
+        Note:
+            - Called regularly by the watchdog to maintain current status
+            - Provides real-time snapshot of observatory state
+            - Essential for remote monitoring of autonomous operations
+        """
         # update heartbeat
         self.heartbeat["datetime"] = datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S.%f")[
             :-3
@@ -1034,6 +1299,35 @@ class Observatory:
         self.heartbeat["monitor-action-queue"] = self.monitor_action_queue
 
     def speculoos_check_and_ack_error(self, close=False) -> None:
+        """
+        Check for and acknowledge SPECULOOS AsTelOS telescope errors.
+
+        SPECULOOS-specific method that monitors telescope error states and
+        automatically acknowledges errors that can be safely cleared. This is
+        essential for autonomous operation of SPECULOOS telescopes which use
+        the AsTelOS control system.
+
+        Parameters:
+            close (bool, optional): If True, checks for errors related to
+                observatory closure operations. If False, checks for general
+                operational errors. Defaults to False.
+
+        The method:
+        1. Iterates through all telescope devices
+        2. Checks for AsTelOS-specific error conditions
+        3. Attempts to acknowledge clearable errors automatically
+        4. Logs error status and acknowledgment results
+
+        Error Handling:
+        - Only acknowledges errors that are safe to clear
+        - Maintains error state for serious issues requiring manual intervention
+        - Logs all error checking and acknowledgment activities
+
+        Note:
+            - Only used with SPECULOOS observatories
+            - Critical for autonomous error recovery
+            - Should be called before and after critical telescope operations
+        """
         if "Telescope" in self.config:
             for telescope_name in self.devices["Telescope"]:
                 telescope = self.devices["Telescope"][telescope_name]
@@ -1081,12 +1375,31 @@ class Observatory:
 
     def open_observatory(self, paired_devices: dict | None = None) -> None:
         """
-        Opens the observatory in a controlled sequence: first, it opens the dome shutter if available,
-        and then it unparks the telescope if available and weather safe.
+        Open the observatory for observations in a safe, controlled sequence.
+
+        Performs the complete observatory opening sequence, ensuring safety at each step:
+        1. Opens dome shutter (if present and weather is safe)
+        2. Unparks telescope (if present and weather is safe)
+        3. Handles SPECULOOS-specific error acknowledgment and polling management
+
+        The sequence only proceeds if weather conditions are safe and no errors
+        are present. For SPECULOOS observatories, special error handling and
+        polling management is performed.
 
         Parameters:
-            paired_devices (dict): A dictionary of paired devices. Defaults to None.
+            paired_devices (dict, optional): Dictionary specifying which specific
+                devices to use for the opening sequence. If None, uses all
+                available devices of each type. Defaults to None.
 
+        Safety Checks:
+            - Weather safety verification before each major operation
+            - Error-free status confirmation
+            - SPECULOOS-specific error acknowledgment and recovery
+
+        Note:
+            - SPECULOOS observatories pause polling during critical operations
+            - Opening sequence is aborted if unsafe conditions develop
+            - Telescope readiness is verified after unparking for SPECULOOS systems
         """
 
         if self.speculoos:
@@ -1204,20 +1517,34 @@ class Observatory:
         self, paired_devices: dict | None = None, error_sensitive: bool = True
     ) -> bool:
         """
-        Close the observatory operations in the following order:
+        Close the observatory in a safe, controlled sequence.
 
-        1. Stop telescope slewing and tracking.
+        Performs the complete observatory shutdown sequence to ensure equipment
+        safety and protection from weather. The sequence follows this order:
+        1. Stop telescope slewing and tracking
+        2. Park the telescope to safe position
+        3. Stop any active guiding operations
+        4. Park the dome and close shutter (if present)
 
-        2. Park the telescope.
-
-        3. Stop guiding if applicable.
-
-        4. Park the dome and close its shutter (if observatory has a dome).
+        For SPECULOOS observatories, includes special error handling and polling
+        management during the closure sequence.
 
         Parameters:
-            paired_devices (dict, optional): A dictionary of paired devices to specify the target devices.
-                Example: {'Telescope': 'TelescopeName', 'Dome': 'DomeName'}
+            paired_devices (dict, optional): Dictionary specifying which specific
+                devices to use for the closing sequence. Format:
+                {'Telescope': 'TelescopeName', 'Dome': 'DomeName'}
+                If None, uses all available devices. Defaults to None.
+            error_sensitive (bool, optional): If True, the closure process is
+                sensitive to system errors. If False, attempts closure even
+                with errors present. Defaults to True.
 
+        Returns:
+            bool: True if the closure sequence completed successfully.
+
+        Note:
+            - SPECULOOS observatories pause polling during critical operations
+            - Dome errors are acknowledged before attempting closure
+            - Critical for protecting equipment during unsafe weather conditions
         """
         if self.speculoos:
             # SPECULOOS EDIT
@@ -1328,18 +1655,33 @@ class Observatory:
 
     def read_schedule(self) -> pd.DataFrame | None:
         """
-        Read the schedule CSV file and return it as a pandas DataFrame.
+        Read and process the observatory schedule from CSV file.
+
+        Loads the schedule CSV file and converts it to a pandas DataFrame with
+        proper datetime parsing. Automatically reloads the schedule if the file
+        has been modified since the last read. Supports schedule truncation for
+        development and testing purposes.
 
         Returns:
-            pd.DataFrame: A DataFrame containing the schedule data, with columns 'start_time' and 'end_time'.
+            pd.DataFrame or None: A DataFrame containing the schedule data with
+                properly parsed 'start_time' and 'end_time' columns, or None if
+                an error occurs during reading.
 
-        Raises:
-            Exception: If an error occurs during reading.
+        Features:
+        - Automatic file modification detection and reload
+        - Datetime parsing for start_time and end_time columns
+        - Optional schedule truncation for development (truncate_schedule flag)
+        - Error handling with logging and error source tracking
 
-        Notes:
-            - If the schedule CSV file is not found, a FileNotFoundError is raised.
-            - The schedule DataFrame is sorted by the 'start_time' column.
-            - If self.truncate_schedule is True, the schedule is truncated for development purposes using the update_times function.
+        File Format:
+        - CSV file with columns including start_time, end_time, device_name,
+          action_type, and action_value
+        - Datetime columns should be in ISO format compatible with pandas
+
+        Note:
+            - Schedule is sorted by start_time after loading
+            - Truncation moves schedule to current time for testing
+            - File modification time is tracked to enable automatic reloading
         """
         # TODO: schedule validity checker, add schedule as string to log?
 
@@ -1387,11 +1729,20 @@ class Observatory:
 
     def get_schedule_mtime(self) -> float:
         """
-        Get the timestamp of the schedule file. If the file does not exist, return 0.
+        Get the modification timestamp of the schedule file.
+
+        Retrieves the last modification time of the schedule CSV file to enable
+        automatic detection of schedule updates. Returns 0 if the file doesn't
+        exist, which can be used to detect when no schedule is available.
 
         Returns:
-            float: The timestamp of the schedule file.
+            float: The Unix timestamp of the schedule file's last modification
+                time, or 0.0 if the file does not exist.
 
+        Note:
+            - Used by read_schedule() to detect file changes
+            - Enables automatic schedule reloading during operation
+            - Returns 0 for non-existent files to simplify logic
         """
         if not self.schedule_path.exists():
             return 0
@@ -1400,12 +1751,26 @@ class Observatory:
 
     def toggle_robotic_switch(self) -> None:
         """
-        Toggle the robotic switch on or off.
+        Toggle the observatory's robotic operation mode on or off.
 
-        This method is used to control the robotic switch, which is responsible for managing
-        the observatory's robotic operations. It can be used to enable or disable the robotic
-        functionality as needed.
+        Controls the robotic switch that enables or disables autonomous observatory
+        operations. When enabled, the observatory can execute schedules automatically.
+        When disabled, manual control is required for all operations.
 
+        Behavior:
+        - If robotic switch is currently ON: Turns it OFF and stops any running schedule
+        - If robotic switch is currently OFF: Turns it ON and starts the schedule
+          (if watchdog is running)
+
+        Safety Features:
+        - Requires watchdog to be running before enabling robotic mode
+        - Automatically stops schedule execution when disabling robotic mode
+        - Logs all state changes for monitoring and debugging
+
+        Note:
+            - Essential safety feature for autonomous operations
+            - Provides manual override capability for emergency situations
+            - Schedule execution is dependent on robotic switch being enabled
         """
         if self.robotic_switch:
             self.robotic_switch = False
@@ -1431,10 +1796,34 @@ class Observatory:
 
     def start_schedule(self) -> None:
         """
-        Start the schedule thread if it is not already running.
+        Start the observatory schedule execution in a new thread.
 
-        This method initializes and starts a new thread responsible for executing the schedule.
+        Initializes and starts a dedicated daemon thread for executing the loaded
+        schedule. Performs various safety and readiness checks before starting
+        schedule execution to ensure safe autonomous operation.
 
+        Pre-execution Checks:
+        - Schedule must be loaded
+        - Schedule must not already be running
+        - Watchdog must be running for safety monitoring
+        - Schedule end time must be in the future
+        - No duplicate schedule threads allowed
+
+        Thread Management:
+        - Creates a daemon thread running run_schedule()
+        - Resets the 'completed' flag on all schedule items
+        - Adds thread to the observatory's thread tracking list
+        - Thread ID 'schedule' for easy identification
+
+        Safety Features:
+        - Multiple validation checks prevent unsafe execution
+        - Automatic thread cleanup if conditions not met
+        - Logging of all start attempts and failures
+
+        Note:
+            - Schedule execution continues until completion or safety conditions fail
+            - Essential component of autonomous observatory operations
+            - Coordinates with watchdog for continuous safety monitoring
         """
 
         if self.schedule is None:
@@ -1475,10 +1864,27 @@ class Observatory:
 
     def stop_schedule(self) -> None:
         """
-        Stop the schedule thread if it is running.
+        Stop the currently running schedule execution thread.
 
-        This method sets the schedule_running flag to False, indicating that the schedule should stop executing.
+        Safely stops the schedule execution by setting the schedule_running flag
+        to False and waiting for the schedule thread to complete. This ensures
+        that any ongoing actions can finish cleanly before the schedule stops.
 
+        Process:
+        1. Sets schedule_running flag to False (signals thread to stop)
+        2. Finds the schedule thread in the threads list
+        3. Waits for the thread to complete using join()
+        4. Logs the stopping action
+
+        Thread Safety:
+        - Uses thread.join() to ensure clean shutdown
+        - Schedule thread checks schedule_running flag regularly
+        - Ongoing actions are allowed to complete before stopping
+
+        Note:
+            - If no schedule is running, logs a warning and returns
+            - Essential for emergency stops and robotic switch operations
+            - Used when weather becomes unsafe or errors occur
         """
 
         if self.schedule_running:
@@ -1493,13 +1899,34 @@ class Observatory:
 
     def run_schedule(self) -> None:
         """
-        Run the schedule while monitoring safety conditions and executing scheduled actions.
+        Execute the observatory schedule while monitoring safety and operational conditions.
 
-        This method manages the execution of a schedule, considering safety checks, weather conditions,
-        and action types. It iterates through schedule rows, starts threads for actions if conditions are met.
-        If the action type is to open or close, it ensures that the actions are completed before proceeding
-        to the next item in the schedule.
+        Manages the execution of scheduled observatory activities in a continuous loop,
+        ensuring safety conditions are met before starting each action. The scheduler
+        coordinates multiple concurrent operations while maintaining system safety.
 
+        Key features:
+        - Waits for weather safety confirmation before starting
+        - Iterates through schedule rows checking timing and conditions
+        - Starts actions in separate threads for concurrent execution
+        - Handles both weather-dependent and weather-independent operations
+        - Manages thread lifecycle and cleanup
+        - Performs final header completion after schedule ends
+
+        Safety Management:
+        - Monitors weather_safe, error_free, and watchdog_running status
+        - Aborts operations if unsafe conditions develop
+        - Times out if weather safety check takes longer than 2 minutes
+
+        Thread Management:
+        - Removes completed threads from tracking list
+        - Prevents duplicate actions from starting
+        - Ensures proper cleanup on schedule completion
+
+        Note:
+            - Schedule must be loaded before calling this method
+            - Method runs until schedule completion or safety conditions fail
+            - Automatically starts final header completion thread on exit
         """
         self.schedule_running = True
         self.logger.info("Running schedule")
@@ -1693,6 +2120,36 @@ class Observatory:
     def cool_camera(
         self, row: dict, set_temperature: float, temperature_tolerance: float = 1
     ) -> None:
+        """
+        Cool a camera to the specified temperature.
+
+        Activates the camera cooler and sets the target temperature with
+        specified tolerance. This is typically done before imaging sequences
+        to reduce thermal noise and ensure consistent camera performance.
+
+        Parameters:
+            row (dict): Schedule row containing camera device information,
+                specifically the 'device_name' field.
+            set_temperature (float): Target temperature in degrees Celsius
+                for the camera CCD.
+            temperature_tolerance (float, optional): Acceptable temperature
+                deviation from target in degrees Celsius. Defaults to 1.
+
+        Process:
+        1. Turns on the camera cooler
+        2. Sets the target CCD temperature with specified tolerance
+        3. Waits up to 30 minutes for temperature stabilization
+
+        Safety Features:
+        - Not weather sensitive (can operate in unsafe weather)
+        - Extended timeout (30 minutes) for temperature stabilization
+        - Continuous monitoring until target temperature reached
+
+        Note:
+            - Essential for scientific imaging to reduce thermal noise
+            - Temperature stabilization can take significant time
+            - Used in camera cooling sequences and before observations
+        """
         # turn camera cooler on
         self.monitor_action(
             "Camera",
@@ -1948,14 +2405,32 @@ class Observatory:
 
     def wait_for_slew(self, paired_devices: PairedDevices) -> None:
         """
-        Wait for a telescope to complete its slewing operation.
+        Wait for telescope slewing operation to complete.
+
+        Monitors the telescope's slewing status and blocks until the slew
+        operation is finished. Includes safety condition checking and
+        timeout protection to prevent infinite waiting.
 
         Parameters:
-            paired_devices (dict): A dictionary containing paired devices, including the 'Telescope' device.
+            paired_devices (PairedDevices): Object containing the telescope
+                device to monitor for slewing completion.
 
-        Raises:
-            TimeoutError: If the slewing operation takes longer than 2 minutes.
+        Safety Features:
+        - Continuous condition checking during wait (weather, errors, schedule)
+        - Automatic timeout protection (prevents infinite loops)
+        - 1-second settle time after slew completion
 
+        Process:
+        1. Checks initial slewing status
+        2. Logs slewing start if telescope is moving
+        3. Polls slewing status with safety condition checks
+        4. Waits for slewing to complete
+        5. Adds settle time for mechanical stabilization
+
+        Note:
+            - Critical for ensuring telescope positioning accuracy
+            - Safety conditions are checked continuously during wait
+            - Settle time allows for mechanical vibrations to dampen
         """
 
         telescope = paired_devices.telescope
@@ -1981,17 +2456,37 @@ class Observatory:
 
     def check_conditions(self, row: dict | None = None) -> bool:
         """
-        Check the conditions for running a sequence or action.
+        Check if current conditions allow safe execution of observatory operations.
 
-        This method checks the conditions required to run a sequence or action, including weather safety,
-        error-free operation, no interruptions, and running schedule and watchdog processes.
+        Evaluates multiple safety and operational conditions to determine if
+        an action or sequence can proceed safely. Different action types have
+        different condition requirements based on their weather sensitivity.
 
         Parameters:
-            row (dict, optional): A dictionary containing information about the sequence or action.
+            row (dict, optional): Schedule row containing action information.
+                If None, checks only base conditions (error_free, schedule_running,
+                watchdog_running). Defaults to None.
 
         Returns:
-            bool: True if all conditions are met, False otherwise.
+            bool: True if all required conditions are met for the operation,
+                False if any condition fails.
 
+        Base Conditions (always checked):
+        - error_free: No system errors present
+        - schedule_running: Schedule execution is active
+        - watchdog_running: Safety monitoring is active
+
+        Action-Specific Conditions:
+        - Weather-sensitive actions (open, object, flats, autofocus, calibrate_guiding,
+          pointing_model): Also require weather_safe
+        - Weather-independent actions (calibration, close, cool_camera,
+          complete_headers): Only require base conditions
+        - Time-sensitive actions: Must be within scheduled start/end time window
+
+        Note:
+            - Used throughout the system for safety checks
+            - Different actions have different safety requirements
+            - Critical for preventing unsafe operations during bad weather
         """
 
         base_conditions = (
@@ -2034,17 +2529,40 @@ class Observatory:
         log_option=None,
         maximal_sleep_time=0.1,
         wcs=None,
-    ) -> Tuple[bool, Path | None]:
+    ) -> tuple[bool, Path | None]:
         """
-        Perform camera exposure, log information, and wait for the image to be ready.
+        Execute a camera exposure and handle image acquisition.
+
+        Performs a complete camera exposure sequence including exposure start,
+        monitoring, and image saving. Handles both light and dark frames with
+        appropriate header information and file management.
 
         Parameters:
-            use_light (bool, optional): Whether to use light during the exposure (default is True).
-            log_option (str or None, optional): Additional information for logging (default is None, adding nothing).
-            maximal_sleep_time (float, optional): The maximum sleep time in seconds during the waiting process (default is 0.01).
+            camera (AlpacaDevice): The camera device to use for exposure.
+            exptime (float): Exposure time in seconds.
+            maxadu (int): Maximum ADU value for the camera.
+            row (dict): Schedule row containing action information.
+            hdr (fits.Header): FITS header dictionary for the image.
+            folder (Path): Directory path for saving the image.
+            use_light (bool, optional): Whether to use light during exposure.
+                False for dark frames. Defaults to True.
+            log_option (str, optional): Additional text for logging messages.
+                Defaults to None.
+            maximal_sleep_time (float, optional): Maximum sleep interval during
+                image ready polling. Defaults to 0.1 seconds.
+            wcs (WCS, optional): World Coordinate System solution for the image.
+                Defaults to None.
 
         Returns:
-            bool: True if the exposure was successful, False otherwise.
+            tuple: A tuple containing:
+                - bool: True if exposure was successful, False otherwise
+                - Path or None: Path to saved image file, None if failed
+
+        Note:
+            - Monitors conditions continuously during exposure
+            - Handles exposure timing and image readiness polling
+            - Automatically saves image with appropriate filename and headers
+            - Sets proper IMAGETYP header based on action type and use_light
         """
         # TODO consider waiting dynamically
         # def wait_for_image_ready(exptime):
@@ -2158,7 +2676,42 @@ class Observatory:
 
     def image_sequence(self, row: dict, paired_devices: PairedDevices) -> None:
         """
-        Run an image sequence for a specific camera.
+        Execute a sequence of astronomical images with a camera.
+
+        Runs a complete imaging sequence including observatory setup, multiple
+        exposures with various exposure times, pointing correction, and optional
+        guiding. Handles both object imaging and calibration sequences.
+
+        Parameters:
+            row (dict): Schedule row containing sequence information including:
+                - device_name: Camera device to use
+                - action_type: Type of sequence ('object' or 'calibration')
+                - start_time/end_time: Sequence timing constraints
+                - action_value: Sequence parameters (exposure times, filters, etc.)
+            paired_devices (PairedDevices): Object containing all devices needed
+                for the sequence (camera, telescope, filter wheel, etc.)
+
+        Sequence Features:
+        - Pre-sequence setup (telescope pointing, filter selection)
+        - Multiple exposure time support
+        - Automatic pointing correction for object sequences
+        - Optional autoguiding activation and management
+        - Dithering pattern support for object sequences
+        - Continuous condition monitoring throughout sequence
+
+        Process Flow:
+        1. Pre-sequence setup (telescope pointing, filters, headers)
+        2. Iterate through exposure time list
+        3. Perform pointing correction (object sequences only)
+        4. Start guiding if configured
+        5. Execute exposures with safety monitoring
+        6. Stop guiding and telescope tracking at completion
+
+        Note:
+            - Supports both single and multiple exposure times
+            - Automatically handles different sequence types
+            - Coordinates telescope, camera, and filter wheel operations
+            - Essential for all astronomical imaging operations
         """
 
         self.logger.info(
@@ -2276,13 +2829,45 @@ class Observatory:
 
     def pointing_model_sequence(self, row: dict, paired_devices: dict) -> None:
         """
-        Run a pointing model sequence for a specific camera.
+        Execute a pointing model sequence to improve telescope pointing accuracy.
 
-        The function generates a series of points in a spiral pattern from the zenith
-        down to a specified altitude above the horizon (30 degrees by default).
-        For each of these points (unless they are too close to the mooon), an exposure is performed
-        and afterwards a pointing correction based on the captured image is performed, updating
-        the header information of the exposure.
+        Generates a systematic series of sky positions and captures images at each
+        location to build or refine a telescope pointing model. The sequence creates
+        a spiral pattern of points from zenith down to a specified altitude, avoiding
+        positions too close to the Moon.
+
+        Parameters:
+            row (dict): Schedule row containing sequence information:
+                - 'device_name': Name of the camera device
+                - 'action_type': Should be 'pointing_model'
+                - 'start_time', 'end_time': Sequence timing
+            paired_devices (dict): Dictionary of paired devices for the sequence,
+                including telescope and camera.
+
+        Action Value Parameters (from row['action_value']):
+            - 'n' (int, optional): Number of pointing positions. Defaults to 20.
+            - 'exptime' (float, optional): Exposure time in seconds. Defaults to 1.
+            - Additional standard action parameters (ra, dec, etc.)
+
+        Process:
+        1. Creates pointing_model directory for image storage
+        2. Generates spiral pattern of sky coordinates from zenith
+        3. For each position (if not too close to Moon):
+           - Slews telescope to target coordinates
+           - Takes exposure with specified parameters
+           - Performs pointing correction to measure error
+           - Updates FITS header with correction information
+        4. Continues until all positions are captured or conditions change
+
+        Safety Features:
+        - Continuous condition checking during sequence
+        - Moon avoidance for accurate measurements
+        - Error handling for individual pointing failures
+
+        Note:
+            - Critical for maintaining high telescope pointing accuracy
+            - Results improve automated observation precision
+            - Typically run during commissioning or maintenance periods
         """
 
         self.logger.info(
@@ -2411,7 +2996,45 @@ class Observatory:
         sync: bool = False,
         slew: bool = True,
     ) -> tuple[bool, WCS | None]:
-        """Perform a pointing correction"""
+        """
+        Perform telescope pointing correction based on an acquired image.
+
+        Uses plate solving to determine the actual pointing position from a captured
+        image and corrects the telescope pointing if the error exceeds the configured
+        threshold. Supports both sync-only and slew corrections.
+
+        Parameters:
+            row (dict): Schedule row containing action information and device details.
+            action_value (dict): Action parameters including target coordinates:
+                - 'ra': Target right ascension in degrees
+                - 'dec': Target declination in degrees
+                - 'object': Object name for logging
+            filepath (str): Path to the FITS image file for plate solving.
+            paired_devices (PairedDevices): Object containing telescope and other
+                devices for the correction.
+            sync (bool, optional): If True, only sync the telescope without slewing.
+                Defaults to False.
+            slew (bool, optional): If True, allows slewing to correct large errors.
+                If False, sets pointing threshold to 0. Defaults to True.
+
+        Returns:
+            tuple: A tuple containing:
+                - bool: True if pointing correction completed successfully
+                - WCS or None: World Coordinate System object if plate solve succeeded,
+                  None if failed
+
+        Process:
+        1. Performs plate solving on the provided image
+        2. Calculates pointing error relative to target coordinates
+        3. Compares error to configured pointing threshold
+        4. Executes sync or slew correction based on error magnitude
+        5. Logs correction details and results
+
+        Note:
+            - Uses PointingCorrectionHandler for plate solving and correction calculations
+            - Pointing threshold is configurable per telescope in the configuration
+            - Falls back gracefully if plate solving fails
+        """
         self.logger.info(
             f"Running pointing correction for {action_value['object']} with {row['device_name']}"
         )
@@ -2506,7 +3129,35 @@ class Observatory:
         self, row: dict, action_value: dict, folder: str, paired_devices: PairedDevices
     ) -> bool:
         """
-        Start the guider for a telescope.
+        Start the autoguiding system for telescope tracking.
+
+        Initializes and starts the guiding system to maintain accurate telescope
+        tracking during long exposures. Creates a separate thread for guiding
+        operations to run concurrently with image acquisition.
+
+        Parameters:
+            row (dict): Schedule row containing action information and device details.
+            action_value (dict): Action parameters including:
+                - 'filter': Filter name for guiding (single quotes are removed)
+                - Other guiding configuration parameters
+            folder (str): Directory path for saving guiding-related files.
+            paired_devices (PairedDevices): Object containing telescope and guide
+                camera devices for the guiding system.
+
+        Returns:
+            bool: True if guider was started successfully, False otherwise.
+
+        Process:
+        1. Logs guiding start for the specified telescope
+        2. Extracts and cleans filter name from action parameters
+        3. Creates guider thread with appropriate parameters
+        4. Starts the guiding thread in background
+        5. Adds thread to observatory's thread tracking list
+
+        Note:
+            - Guiding runs in a separate thread to avoid blocking main operations
+            - Thread is tracked in self.threads for proper cleanup
+            - Filter name formatting removes single quotes for compatibility
         """
         self.logger.info(f"Starting guiding for {paired_devices['Telescope']}")
 
@@ -2545,17 +3196,41 @@ class Observatory:
 
     def guiding_calibration_sequence(self, row, paired_devices: PairedDevices) -> bool:
         """
-        Perform guding calibration.
+        Perform autoguiding calibration to establish guide star movements.
+
+        Executes a calibration sequence that maps the relationship between guide
+        commands and resulting star movements on the guide camera. This calibration
+        is essential for accurate autoguiding performance.
 
         Parameters:
-            row (dict): A dictionary containing information about the sequence action:
-                - 'device_name': The name of the device.
-                - 'action_type': The type of action (e.g., 'object').
-                - 'action_value': The action's value (e.g., a command or parameter).
-            paired_devices (dict): A dictionary specifying paired devices for the sequence.
+            row (dict): Schedule row containing calibration sequence information:
+                - 'device_name': Name of the camera device
+                - 'action_type': Should be 'calibrate_guiding'
+                - 'action_value': Calibration parameters and settings
+            paired_devices (PairedDevices): Object containing telescope, guide camera,
+                and other devices required for calibration.
 
         Returns:
-            bool: True if the guiding calibration was successful, False otherwise.
+            bool: True if calibration completed successfully, False if failed
+                or conditions became unsafe.
+
+        Process:
+        1. Prepares observatory and creates calibration metadata
+        2. Checks safety conditions before starting
+        3. Executes guiding calibration using GuidingCalibrator
+        4. Measures guide star response to directional commands
+        5. Calculates calibration parameters for future guiding
+        6. Returns success status
+
+        Safety Features:
+        - Continuous condition checking during calibration
+        - Graceful handling of calibration failures
+        - Proper error logging and reporting
+
+        Note:
+            - Required before autoguiding can be used effectively
+            - Calibration parameters are device and mount specific
+            - Should be performed when guiding setup changes
         """
         self.logger.info(f"Running guiding calibration for {row['device_name']}")
         try:
@@ -2596,17 +3271,47 @@ class Observatory:
 
     def autofocus_sequence(self, row, paired_devices: PairedDevices) -> bool:
         """
-        Perform autofocus.
+        Perform autofocus sequence to achieve optimal telescope focus.
+
+        Executes an automated focusing routine that systematically tests different
+        focus positions to find the optimal focus setting. Uses star analysis
+        to measure focus quality and determine the best focus position.
 
         Parameters:
-            row (dict): A dictionary containing information about the sequence action:
-                - 'device_name': The name of the device.
-                - 'action_type': The type of action (e.g., 'object').
-                - 'action_value': The action's value (e.g., a command or parameter).
-            paired_devices (dict): A dictionary specifying paired devices for the sequence.
+            row (dict): Schedule row containing autofocus sequence information:
+                - 'device_name': Name of the camera device
+                - 'action_type': Should be 'autofocus'
+                - 'action_value': Autofocus parameters and settings
+            paired_devices (PairedDevices): Object containing telescope, camera,
+                focuser, and other devices required for autofocus.
 
         Returns:
-            bool: True if the autofocus was successful, False otherwise.
+            bool: True if autofocus completed successfully and achieved good focus,
+                False if failed or conditions became unsafe.
+
+        Process:
+        1. Prepares observatory and creates autofocus metadata
+        2. Checks safety conditions before starting
+        3. Executes autofocus routine using appropriate algorithm
+        4. Takes test exposures at different focus positions
+        5. Analyzes star quality metrics (FWHM, HFD, etc.)
+        6. Determines and sets optimal focus position
+        7. Returns success status
+
+        Focus Methods:
+        - Uses Autofocuser or Defocuser classes for focus optimization
+        - Supports different focus algorithms (curve fitting, star analysis)
+        - Handles both coarse and fine focus adjustments
+
+        Safety Features:
+        - Continuous condition checking during focus sequence
+        - Graceful handling of focus failures
+        - Proper error logging and reporting
+
+        Note:
+            - Critical for achieving optimal image quality
+            - Should be performed regularly or when focus changes
+            - Temperature changes often require refocusing
         """
         self.logger.info(f"Running autofocus for {row['device_name']}")
         try:
@@ -2648,33 +3353,52 @@ class Observatory:
 
     def flats_sequence(self, row: dict, paired_devices: dict) -> None:
         """
-        Performs a flats sequence.
+        Execute a flat field calibration sequence during twilight.
 
-        A flats sequence is a series of exposures with a consistent brightness level, typically used for calibrating images.
+        Captures flat field images during astronomical twilight when the sky
+        provides uniform illumination. Automatically manages telescope positioning,
+        exposure timing, and filter changes to create comprehensive flat field
+        libraries for image calibration.
 
         Parameters:
-            row (dict): A dictionary containing information about the sequence and the device, including 'action_value', 'device_name', 'start_time', and 'end_time'.
-            It should include keys like 'device_name', 'start_time', and 'end_time'.
+            row (dict): Schedule row containing flat sequence information:
+                - 'device_name': Name of the camera device
+                - 'action_type': Should be 'flats'
+                - 'action_value': Flat sequence parameters including filters and targets
+                - 'start_time', 'end_time': Sequence timing window
+            paired_devices (dict): Dictionary of paired devices including telescope,
+                camera, filter wheel, and dome for the sequence.
 
-            paired_devices (dict): A dictionary of paired devices required for the sequence.
+        Action Value Parameters:
+            - 'filter': Filter name(s) for flat field acquisition
+            - 'target_adu': Target ADU level for optimal flat exposure
+            - 'nflats': Number of flat frames per filter
+            - Other standard imaging parameters
 
+        Process:
+        1. Monitors sun altitude for optimal flat field conditions
+        2. Positions telescope for uniform sky illumination
+        3. Calculates optimal exposure times for target ADU levels
+        4. Captures flat frames with consistent brightness
+        5. Iterates through multiple filters if specified
+        6. Handles exposure time adjustments as sky brightness changes
 
-        The function captures and saves flat field images, adjusting exposure times as necessary to reach the
-        desired target ADU (Analog-to-Digital Unit) value, set in the config file.
+        Timing Considerations:
+        - Only operates during narrow twilight windows
+        - Monitors sun elevation for optimal conditions
+        - Automatically adjusts for changing sky brightness
+        - Stops when conditions become unsuitable
 
-        Reference:
-            Wei, P., Shang, Z., Ma, B., Zhao, C., Hu, Y. and Liu, Q., 2014, August. Problems with twilight/supersky flat-field for wide-field robotic telescopes and the solution. In Observatory Operations: Strategies, Processes, and Systems V (Vol. 9149, pp. 877-883). SPIE.
-            https://arxiv.org/pdf/1407.8283.pdf
+        Safety Features:
+        - Continuous sky brightness monitoring
+        - Automatic exposure time calculation
+        - Weather and condition checking
+        - Graceful handling of changing conditions
 
-        Notes:
-            - The sequence will continue to run until one of the following conditions is met:
-                - The current time exceeds 'end_time'.
-                - Adverse weather conditions are detected.
-                - An error occurs during execution.
-                - The sequence is manually interrupted.
-                - The schedule is stopped.
-                - The watchdog process is terminated.
-
+        Note:
+            - Critical for high-quality photometric calibration
+            - Timing is crucial - operates only during twilight
+            - Results improve scientific data quality significantly
         """
 
         self.logger.info(
@@ -2853,22 +3577,39 @@ class Observatory:
         self, obs_location: EarthLocation, paired_devices: dict, row: dict
     ) -> None:
         """
-        Move a telescope to a optimal sky flat position for capturing flat frames.
+        Position telescope to optimal sky location for flat field imaging.
+
+        Calculates and moves the telescope to an optimal sky position for capturing
+        uniform flat field images. The position is determined based on sun location,
+        telescope constraints, and sky brightness uniformity requirements.
 
         Parameters:
-            obs_location (EarthLocation): The location of the observatory.
-            paired_devices (dict): A dictionary of paired devices required for the sequence.
-            row (dict): A dictionary containing information about the sequence and the device, including 'action_value', 'device_name', 'start_time', and 'end_time'.
+            obs_location (EarthLocation): Observatory geographical location for
+                astronomical calculations.
+            paired_devices (dict): Dictionary of paired devices including telescope
+                and dome for positioning operations.
+            row (dict): Schedule row containing sequence information:
+                - 'action_value': Flat sequence parameters
+                - 'device_name': Name of the camera device
+                - Other timing and configuration parameters
 
-        Notes:
-            - The sequence will continue to run until one of the following conditions is met:
-                - The current time exceeds 'end_time'.
-                - Adverse weather conditions are detected.
-                - An error occurs during execution.
-                - The sequence is manually interrupted.
-                - The schedule is stopped.
-                - The watchdog process is terminated.
+        Process:
+        1. Calculates optimal sky position based on current conditions
+        2. Considers sun position and twilight geometry
+        3. Ensures position provides uniform illumination
+        4. Commands telescope to slew to calculated position
+        5. Updates action_value with target coordinates
 
+        Positioning Strategy:
+        - Avoids regions near sun or moon for uniform illumination
+        - Selects high altitude positions when possible
+        - Considers dome constraints and telescope limits
+        - Optimizes for sky brightness uniformity
+
+        Note:
+            - Critical for obtaining high-quality flat field calibrations
+            - Position affects uniformity and quality of flat frames
+            - Coordinates with flats_exptime for complete flat acquisition
         """
 
         if "Telescope" in paired_devices:
@@ -3105,15 +3846,34 @@ class Observatory:
         self, paired_devices: PairedDevices, action_value: dict
     ) -> fits.Header:
         """
-        This function creates a base header for the fits file.
+        Create a base FITS header with observatory and observation information.
+
+        Constructs a comprehensive FITS header containing fixed observatory parameters,
+        current device status, astronomical coordinates, and observation metadata.
+        The header is built from the FITS configuration file and current system state.
 
         Parameters:
-            paired_devices (dict): A dictionary specifying paired devices, such as Telescope.
-            action_value (dict): A dictionary containing action values from schedule.
+            paired_devices (PairedDevices): Object containing the devices being used
+                for the current observation sequence.
+            action_value (dict): Dictionary containing observation parameters from
+                the schedule, including target coordinates, filters, and settings.
 
         Returns:
-            fits.Header: The FITS header containing the specified header entries.
+            fits.Header: A complete FITS header object containing:
+                - Fixed observatory information (location, instrument details)
+                - Current astronomical conditions (coordinates, time)
+                - Device-specific parameters (telescope pointing, filter position)
+                - Observation metadata (object name, exposure settings)
 
+        Header Categories:
+            - astra: Observatory and software version information
+            - astropy_default: Standard astronomical coordinate systems
+            - Device-specific: Current status from telescopes, cameras, etc.
+
+        Note:
+            - Some header values are populated from real-time device polling
+            - Coordinate transformations are performed for various reference frames
+            - Observatory location and timing information is automatically included
         """
 
         self.logger.info("Creating base header")
@@ -3219,27 +3979,41 @@ class Observatory:
 
     def final_headers(self) -> None:
         """
-        Add final headers to fits file.
+        Complete FITS headers with interpolated device data.
 
-        This method retrieves the captured image paths from the sqlite.db, and adds the missing headers
-        using the polled data from each device (see 'connect_all' method). The polled data is then interpolated onto
-        the same time series using the same dateobs from the fits file. The final headers are then written to the fits file.
+        Post-processes captured images by adding dynamic header information that
+        wasn't available at exposure time. Uses polled device data to interpolate
+        accurate values for each image timestamp, ensuring complete and accurate
+        FITS headers for scientific analysis.
 
-        The process involves the following steps:
-            1. Fetch images from the sqlite database that have not yet received final headers.
-            2. Sort and process images by camera.
-            3. Retrieve polled data from ASCOM devices within a time window around the first and last image timestamps.
-            4. Extract unique headers and comments from a fits_config dictionary.
-            5. Interpolate and populate headers for each image using the polled data.
-            6. Update the FITS files with the final headers.
-            7. Mark processed images as complete in the database.
+        The process:
+        1. Retrieves incomplete images from the database
+        2. Groups images by camera for efficient processing
+        3. Queries polled device data around image timestamps
+        4. Interpolates device values to exact exposure times
+        5. Updates FITS files with complete headers
+        6. Marks images as header-complete in database
 
-        Raises:
-            Exception: If any error occurs during the header completion process, it is logged and added to 'error_source'.
+        Key Features:
+        - Time-interpolated device values for precise timestamps
+        - Handles multiple cameras and device types simultaneously
+        - Preserves original headers while adding missing information
+        - Robust error handling with detailed logging
 
-        Returns:
-            None
+        Data Sources:
+        - Device polling data from database
+        - FITS configuration file for header mapping
+        - Original image FITS headers for timing information
 
+        Error Handling:
+        - Individual image failures don't stop batch processing
+        - All errors are logged and added to error_source
+        - Database consistency maintained even with partial failures
+
+        Note:
+            - Typically run after observation sequences complete
+            - Critical for ensuring complete scientific metadata
+            - May take significant time for large image sets
         """
 
         try:
@@ -3446,24 +4220,50 @@ class Observatory:
         weather_sensitive: bool = True,
     ) -> None:
         """
-        Monitor device(s) of device_type for a given monitor_command and run_command if desired_condition is not met.
+        Monitor a device property and execute commands to achieve desired conditions.
 
-        Args:
-            device_type (str): Type of the device(s) to monitor.
-            monitor_command (str): The command to monitor on the device(s).
-            desired_condition (any): The desired condition that should be met.
-            run_command (str): The command to run if the desired_condition is not met.
-            device_name (str): Name of the specific device to monitor.
-            run_command_type (str, optional): Type of run command ('set' or 'get') (default '').
-            abs_tol (float, optional): Absolute tolerance for comparing conditions (default 0).
-            log_message (str, optional): Custom log message that runs if conditions not initially met (default '').
-            timeout (float, optional): Maximum time to monitor before timing out (default 120 seconds).
-            error_sensitive (bool, optional): If True, monitor action will be sensitive to errors (default True).
-            weather_sensitive (bool, optional): If True, monitor action will be sensitive to weather conditions (default True).
+        Continuously monitors a device property and executes a command if the current
+        value doesn't match the desired condition. Provides robust error handling,
+        timeout management, and safety checks during execution.
 
+        This is a fundamental method for observatory automation, handling everything
+        from telescope movements to camera settings with appropriate safety checks.
+
+        Parameters:
+            device_type (str): Type of device to monitor (e.g., 'Telescope', 'Camera').
+            monitor_command (str): Property to monitor on the device.
+            desired_condition (any): Target value or condition to achieve.
+            run_command (str): Command to execute if condition not met.
+            device_name (str): Specific device name to operate on.
+            run_command_type (str, optional): Command type ('set' or 'get').
+                Defaults to empty string for simple commands.
+            abs_tol (float, optional): Absolute tolerance for numerical comparisons.
+                Defaults to 0 for exact matches.
+            log_message (str, optional): Custom message logged when action starts.
+                Defaults to empty string.
+            timeout (float, optional): Maximum time to wait in seconds.
+                Defaults to 120 seconds.
+            error_sensitive (bool, optional): Whether to abort on system errors.
+                Defaults to True.
+            weather_sensitive (bool, optional): Whether to abort on unsafe weather.
+                Defaults to True.
+
+        Safety Features:
+        - Continuous monitoring of weather and error conditions
+        - Timeout protection prevents infinite loops
+        - Queue management prevents conflicting operations
+        - Detailed error logging and reporting
+
+        Note:
+            - Uses queue system to prevent overlapping operations on same device
+            - Automatically handles different data types and comparison methods
+            - Critical for all automated observatory operations
         """
 
         def check_safe():
+            """
+            Check if the current weather and error conditions are safe for operation.
+            """
             return (not weather_sensitive or self.weather_safe) and (
                 not error_sensitive or self.error_free
             )
@@ -3572,12 +4372,34 @@ class Observatory:
 
     def queue_get(self) -> None:
         """
-        Retrieve and process items from the queue until it's stopped.
+        Process multiprocessing queue messages for database operations and logging.
 
-        This method continuously retrieves items from the queue and processes them based on their type.
-        If the type is 'query', it executes the SQL query provided in the item's data.
-        If the type is 'log', it logs the data and appends errors to the error_source if applicable.
+        Continuously monitors the multiprocessing queue for database queries and
+        log messages from device processes. Handles different message types and
+        maintains system operation by processing database operations and managing
+        thread cleanup.
 
+        Message Types Handled:
+        - 'query': Executes SQL database queries from device processes
+        - 'log': Processes log messages with different severity levels
+          - 'info', 'warning', 'error', 'debug' log levels supported
+          - Error messages are added to error_source for monitoring
+
+        Background Operations:
+        - Cleans up completed threads from the threads list
+        - Maintains database consistency across multiprocessing boundaries
+        - Ensures proper error propagation from device processes
+
+        Error Handling:
+        - Catches and logs queue processing errors
+        - Adds queue errors to error_source for monitoring
+        - Stops queue processing on fatal errors
+
+        Note:
+            - Runs continuously until queue_running flag is False
+            - Essential for multiprocessing communication with devices
+            - Handles both synchronous database operations and asynchronous logging
+            - Thread cleanup prevents memory leaks in long-running operations
         """
 
         while self.queue_running:
