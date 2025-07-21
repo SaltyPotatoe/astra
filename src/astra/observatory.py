@@ -2955,6 +2955,10 @@ class Observatory:
             action_value["dec"] = target_radec.dec.deg
             self.setup_observatory(paired_devices, action_value)
 
+            if self.speculoos:
+                # wait for telescope to settle
+                time.sleep(exptime * 3)  # for spirit
+
             # perform exposure
             success, filepath = self.perform_exposure(
                 camera,
@@ -2973,9 +2977,6 @@ class Observatory:
             pointing_complete, wcs_solve = self.pointing_correction(
                 row, action_value, filepath, paired_devices, sync=True, slew=False
             )
-
-            if self.speculoos:
-                time.sleep(exptime * 3)  # for spirit
 
             # update header with wcs
             if wcs_solve is not None:
@@ -4438,5 +4439,7 @@ class Observatory:
                         "error": error_text,
                     }
                 )
-                self.logger.error(f"Queue get error: {error_text}", exc_info=True, stack_info=True)
+                self.logger.error(
+                    f"Queue get error: {error_text}", exc_info=True, stack_info=True
+                )
                 self.queue_running = False
