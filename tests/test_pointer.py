@@ -6,8 +6,11 @@ import numpy as np
 import pytest
 from astropy.coordinates import SkyCoord
 
-from astra.pointer import (ImageStarMapping, PointingCorrection,
-                           PointingCorrectionHandler)
+from astra.pointer import (
+    ImageStarMapping,
+    PointingCorrection,
+    PointingCorrectionHandler,
+)
 
 
 class TestPointingCorrection:

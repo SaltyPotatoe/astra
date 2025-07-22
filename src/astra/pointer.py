@@ -4,19 +4,177 @@ from pathlib import Path
 from typing import Optional, Tuple, Union
 
 import astropy.units as u
+from matplotlib import pyplot as plt
 import numpy as np
 import pandas as pd
 import twirl
 from astropy.coordinates import SkyCoord
 from astropy.io import fits
-from astropy.stats import SigmaClip
+from astropy.stats import SigmaClip, sigma_clipped_stats
 from astropy.units import Quantity
 from astropy.wcs.utils import WCS, pixel_to_skycoord
 from photutils.background import Background2D, MedianBackground
+from photutils.detection import DAOStarFinder
 from scipy import ndimage
 
 from astra import Config
 from astra.utils import db_query
+
+
+def find_stars_dao(
+    data: np.ndarray, threshold: float = 5.0, fwhm: float = 3.0
+) -> np.ndarray:
+    """
+    Find stars using DAOStarFinder algorithm.
+
+    Parameters
+    ----------
+    data : np.ndarray
+        The 2D image data
+    threshold : float, optional
+        Detection threshold in units of background standard deviation
+    fwhm : float, optional
+        Expected FWHM of stars in pixels
+
+    Returns
+    -------
+    np.ndarray
+        Array of (x, y) coordinates sorted by brightness
+    """
+    # Calculate background statistics
+    mean, median, std = sigma_clipped_stats(data, sigma=3.0)
+
+    # Use DAOStarFinder for star detection
+    daofind = DAOStarFinder(fwhm=fwhm, threshold=threshold * std)
+    sources = daofind(data - median)
+
+    if sources is None or len(sources) == 0:
+        return np.array([]).reshape(0, 2)
+
+    # Convert to (x, y) coordinates
+    coordinates = np.column_stack([sources["xcentroid"], sources["ycentroid"]])
+
+    # Sort by flux (brightness)
+    fluxes = sources["flux"]
+    return coordinates[np.argsort(fluxes)[::-1]]
+
+
+def remove_duplicates(detections: np.ndarray, width: int, height: int) -> np.ndarray:
+    """
+    Remove duplicate detections using priority-based selection.
+
+    Parameters
+    ----------
+    detections : np.ndarray
+        Array of detections with [x, y, scale] for each detection
+    width, height : int
+        Image dimensions
+
+    Returns
+    -------
+    np.ndarray
+        Filtered array of unique detections [x, y, scale]
+    """
+    if len(detections) <= 1:
+        return detections
+
+    # Calculate priority scores (prefer central position and smaller scale)
+    center = np.array([width / 2, height / 2])
+    positions = detections[:, :2]
+    scales = detections[:, 2]
+
+    center_distances = np.linalg.norm(positions - center, axis=1)
+    center_scores = 1.0 / (1.0 + center_distances / max(width, height))
+    scale_scores = 1.0 / scales  # Prefer smaller scales
+
+    priority_scores = center_scores * scale_scores
+
+    # Sort by priority (highest first)
+    sorted_indices = np.argsort(priority_scores)[::-1]
+    sorted_detections = detections[sorted_indices]
+
+    # Remove duplicates (within 10 pixels)
+    unique_detections = []
+    for detection in sorted_detections:
+        is_duplicate = False
+        pos = detection[:2]
+
+        for existing in unique_detections:
+            if np.linalg.norm(pos - existing[:2]) < 10.0:
+                is_duplicate = True
+                break
+
+        if not is_duplicate:
+            unique_detections.append(detection)
+
+    return np.array(unique_detections)
+
+
+def find_stars_multiscale(
+    data: np.ndarray,
+    scales: list = [1, 2, 3],
+    threshold: float = 5.0,
+    edge_buffer: int = 15,
+) -> np.ndarray:
+    """
+    Multi-scale star detection for noisy astronomical images.
+
+    Parameters
+    ----------
+    data : np.ndarray
+        The 2D image data
+    scales : list, optional
+        List of smoothing scales to try (in pixels)
+    threshold : float, optional
+        Detection threshold in units of background standard deviation
+    edge_buffer : int, optional
+        Minimum distance from image edges to accept a detection
+
+    Returns
+    -------
+    np.ndarray
+        Array of (x, y) coordinates of detected stars, sorted by brightness
+    """
+    all_detections = []
+    height, width = data.shape
+
+    for scale in scales:
+        # Smooth the image with proper edge handling
+        smoothed = ndimage.gaussian_filter(data, sigma=scale, mode="reflect")
+
+        # Detect stars
+        stars = find_stars_dao(smoothed, threshold=threshold, fwhm=scale * 2)
+
+        if len(stars) > 0:
+            # Filter out stars too close to edges
+            valid_stars = []
+            for star in stars:
+                x, y = star
+                if (
+                    edge_buffer <= x < width - edge_buffer
+                    and edge_buffer <= y < height - edge_buffer
+                ):
+                    brightness = data[int(y), int(x)]
+                    valid_stars.append([x, y, scale, brightness])
+
+            if valid_stars:
+                all_detections.extend(valid_stars)
+
+    if not all_detections:
+        return np.array([]).reshape(0, 2)
+
+    # Convert to numpy array for easier manipulation
+    all_detections = np.array(all_detections)
+
+    # Remove duplicates
+    unique_stars = remove_duplicates(all_detections, width, height)
+
+    # Sort by brightness (descending order)
+    sorted_indices = np.argsort(unique_stars[:, 3])[::-1]
+    sorted_stars = unique_stars[sorted_indices]
+
+    # Return only x, y coordinates
+    return sorted_stars[:, :2]
 
 
 @dataclass
@@ -283,7 +441,9 @@ class PointingCorrectionHandler:
         image_clean = cls._clean_image(image)
 
         # Detect stars in the image
-        stars_in_image = twirl.find_peaks(image_clean, threshold=10)
+        stars_in_image = find_stars_multiscale(
+            image_clean, scales=[1, 2, 3], threshold=10, edge_buffer=48
+        )
 
         # Limit number of stars and gaia stars to use for plate solve
         number_of_stars_to_use = min(len(stars_in_image), 12)
@@ -298,7 +458,7 @@ class PointingCorrectionHandler:
             image_clean,
             dateobs,
             plate_scale,
-            fov_scale=1.1,
+            fov_scale=1.2,
             limit=2 * number_of_stars_to_use,
         )
         image_star_mapping = ImageStarMapping.from_gaia_coordinates(
@@ -320,7 +480,10 @@ class PointingCorrectionHandler:
             pointing_correction, plate_scale, image_clean.shape
         )
         cls._verify_plate_solve(
-            image_star_mapping, pixel_threshold=10, number_of_matched_stars=4
+            image_star_mapping,
+            pixel_threshold=20,
+            number_of_stars_to_match=number_of_stars_to_use
+            * 0.9,  # tolerate 10% less stars matched
         )
 
         return cls(
@@ -372,12 +535,16 @@ class PointingCorrectionHandler:
     ):
         fov = plate_scale * np.array(image_clean.shape)
         fov[0] *= 1 / np.abs(np.cos(dec * np.pi / 180))
+        # TODO: put tmass option in config
         return gaia_db_query(
             (ra, dec), fov_scale * fov, tmass=True, dateobs=dateobs, limit=limit
         )
 
     @staticmethod
     def _clean_image(data: np.ndarray) -> np.ndarray:
+
+        data = data.astype(np.int16)
+
         bkg = Background2D(
             data,
             (32, 32),
@@ -409,14 +576,17 @@ class PointingCorrectionHandler:
     def _verify_plate_solve(
         image_star_mapping: ImageStarMapping,
         pixel_threshold: int = 10,
-        number_of_matched_stars: int = 4,
+        number_of_stars_to_match: int = 4,
     ):
         number_of_matched_stars = image_star_mapping.number_of_matched_stars(
             pixel_threshold
         )
 
-        if number_of_matched_stars < number_of_matched_stars:
-            raise Exception("Plate solve failed, not enough stars matched")
+        # tolerate 10% less stars matched
+        if number_of_matched_stars < number_of_stars_to_match:
+            raise Exception(
+                f"Plate solve failed, not enough stars matched. {number_of_matched_stars}/{number_of_stars_to_match} stars matched."
+            )
 
     def __repr__(self):
         return (
