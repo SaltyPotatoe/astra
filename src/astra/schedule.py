@@ -1,9 +1,8 @@
-import json
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from pathlib import Path
+from typing import Union
 
 import pandas as pd
-import yaml
 
 from astra import Config
 
@@ -11,8 +10,29 @@ CONFIG = Config()
 
 
 def update_times(df: pd.DataFrame, time_factor: float) -> pd.DataFrame:
-    """Update the start and end times to present day factored by the time
-    factor."""
+    """
+    Update the start and end times to present day factored by the time factor.
+
+    This function scales the time intervals between schedule entries by a given factor
+    and shifts all times to start from the current time. This is useful for testing
+    schedules by compressing their duration.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        DataFrame containing schedule data with columns:
+        ['device_type', 'device_name', 'action_type', 'action_value', 'start_time', 'end_time']
+    time_factor : float
+        Factor by which to divide time intervals. Values > 1 compress the schedule,
+        values < 1 expand it. For example, time_factor=25 makes a 25-hour schedule
+        run in 1 hour.
+
+    Returns
+    -------
+    pd.DataFrame
+        New DataFrame with updated start_time and end_time columns, scaled by
+        time_factor and shifted to start from the current time.
+    """
 
     new_rows = []
     prev_start_time = None
@@ -52,8 +72,40 @@ def update_times(df: pd.DataFrame, time_factor: float) -> pd.DataFrame:
     return pd.DataFrame(new_rows, columns=df.columns)
 
 
-def process_schedule(filename, truncate=False) -> pd.DataFrame:
-    """ """
+def process_schedule(
+    filename: Union[str, Path], truncate: bool = False
+) -> pd.DataFrame:
+    """
+    Process a schedule file and return a DataFrame with parsed schedule data.
+
+    Reads a schedule from a CSV file, converts time columns to datetime objects,
+    sorts by start time, and optionally applies time truncation for testing.
+
+    Parameters
+    ----------
+    filename : str or Path
+        Path to the schedule file. Currently only CSV format is supported.
+    truncate : bool, optional
+        Whether to apply time truncation using update_times() with a factor of 25.
+        This is useful for development/testing to compress long schedules, by default False.
+
+    Returns
+    -------
+    pd.DataFrame
+        Processed schedule DataFrame with columns:
+        - Original columns from the input file
+        - start_time : datetime (converted to UTC)
+        - end_time : datetime (converted to UTC)
+        - completed : bool (added, defaults to False)
+        Sorted by start_time in ascending order.
+
+    Raises
+    ------
+    FileNotFoundError
+        If the specified file does not exist.
+    ValueError
+        If the file format is not supported (currently only .csv is supported).
+    """
     schedule_path = Path(filename)
 
     if schedule_path.exists() is False:
