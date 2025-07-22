@@ -1,5 +1,6 @@
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import List, Optional, Union
 
 import numpy as np
 from alpaca.camera import ImageMetadata
@@ -14,15 +15,34 @@ CONFIG = Config()
 def create_image_dir(
     schedule_start_time: datetime = datetime.now(UTC),
     site_long: float = 0,
-    user_specified_dir: str = None,
+    user_specified_dir: Optional[str] = None,
 ) -> Path:
     """
     Create a directory to store images.
 
-    This function creates a directory to store images. If a user-specified directory is provided, it is used.
-    Otherwise, the directory is created in the 'images' folder with a name based on the schedule's beginning
-    date (~shifted to local time using site's longitude).
+    This function creates a directory to store images. If a user-specified directory 
+    is provided, it is used. Otherwise, the directory is created in the 'images' 
+    folder with a name based on the schedule's beginning date (shifted to local 
+    time using site's longitude).
 
+    Parameters
+    ----------
+    schedule_start_time : datetime, optional
+        The start time of the observing schedule, by default datetime.now(UTC)
+    site_long : float, optional
+        Site longitude in degrees (used to convert UTC to local time), by default 0
+    user_specified_dir : str or None, optional
+        Custom directory path to use instead of auto-generated path, by default None
+
+    Returns
+    -------
+    Path
+        Path object pointing to the created directory
+
+    Notes
+    -----
+    The auto-generated directory name format is YYYYMMDD based on the local date
+    calculated from schedule_start_time + (site_long / 15) hours.
     """
 
     if user_specified_dir:
@@ -38,19 +58,47 @@ def create_image_dir(
 
 
 def transform_image_to_array(
-    image: list[int] | np.ndarray, maxadu: int, image_info: ImageMetadata
+    image: Union[List[int], np.ndarray], maxadu: int, image_info: ImageMetadata
 ) -> np.ndarray:
     """
-    This function takes in a device object, an image object, and a maximum ADU
-    value and returns a numpy array of the correct shape for astropy.io.fits.
+    Transform image data to a numpy array with the correct shape and data type for FITS files.
 
-    Parameters:
-        device (AlpacaDevice): A device object that contains the ImageArrayInfo data.
-        img (np.array): An image object that contains the image data.
-        maxadu (int): The maximum ADU value.
+    This function takes raw image data and metadata, determines the appropriate data type
+    based on the image element type and maximum ADU value, and reshapes the array for
+    compatibility with astropy.io.fits conventions.
 
-    Returns:
-        nda (np.array): A numpy array of the correct shape for astropy.io.fits.
+    Parameters
+    ----------
+    image : list of int or np.ndarray
+        Raw image data as a list or numpy array
+    maxadu : int
+        Maximum ADU (Analog-to-Digital Unit) value for the image
+    image_info : ImageMetadata
+        Metadata object containing image properties including:
+        - ImageElementType: Data type indicator (0-3)
+        - Rank: Number of dimensions (2 for grayscale, 3 for color)
+
+    Returns
+    -------
+    np.ndarray
+        Properly shaped and typed numpy array ready for FITS file creation.
+        For 2D images: transposed array
+        For 3D images: transposed with axes (2, 1, 0)
+
+    Raises
+    ------
+    ValueError
+        If ImageElementType is not in the expected range (0-3)
+
+    Notes
+    -----
+    ImageElementType mapping:
+    - 0, 1: uint16
+    - 2: uint16 (if maxadu <= 65535) or int32 (if maxadu > 65535)
+    - 3: float64
+    
+    The transpose operations are required to match FITS file conventions
+    where the first axis corresponds to columns and the second to rows.
     """
     if not isinstance(image, np.ndarray):
         image = np.array(image)
@@ -78,30 +126,61 @@ def transform_image_to_array(
 
 
 def save_image(
-    image: list[int] | np.ndarray,
+    image: Union[List[int], np.ndarray],
     image_info: ImageMetadata,
     maxadu: int,
     hdr: fits.Header,
     device_name: str,
     dateobs: datetime,
     folder: str,
-    wcs: WCS = None,
+    wcs: Optional[WCS] = None,
 ) -> Path:
-    """Save an image to disk.
+    """
+    Save an image to disk in FITS format with proper headers and filename generation.
 
-    This function retrieves an image from an Alpaca device, transforms it, and saves it to disk in FITS format.
-    The filename is generated based on device information and the image's characteristics.
+    This function transforms raw image data, updates FITS headers with observation
+    metadata, optionally adds WCS information, and saves the result as a FITS file
+    with an automatically generated filename based on image properties.
 
-    The FITS header is updated with the 'DATE-OBS' and 'DATE' keywords to record the exposure start time
-    and the time when the file was written.
+    Parameters
+    ----------
+    image : list of int or np.ndarray
+        Raw image data to be saved
+    image_info : ImageMetadata
+        Metadata object containing image properties for data type determination
+    maxadu : int
+        Maximum ADU (Analog-to-Digital Unit) value for the image
+    hdr : fits.Header
+        FITS header dictionary containing image metadata. Must include:
+        - FILTER: Filter name used for the observation
+        - IMAGETYP: Type of image ("Light Frame", "Bias Frame", "Dark Frame", etc.)
+        - OBJECT: Target object name (for light frames)
+        - EXPTIME: Exposure time in seconds
+    device_name : str
+        Name of the camera/device used for the observation
+    dateobs : datetime
+        UTC datetime when the exposure started
+    folder : str
+        Subfolder name within the images directory where the file will be saved
+    wcs : WCS, optional
+        World Coordinate System information to add to the header, by default None
 
-    After saving the image, it is logged, and its file path is returned.
+    Returns
+    -------
+    Path
+        Path object pointing to the saved FITS file
 
-    Parameters:
-
-    Returns:
-        str: The file path to the saved image.
-
+    Notes
+    -----
+    The function automatically generates filenames based on image type:
+    - Light frames: "{device}_{filter}_{object}_{exptime}_{timestamp}.fits"
+    - Bias/Dark frames: "{device}_{imagetype}_{exptime}_{timestamp}.fits"
+    - Other frames: "{device}_{filter}_{imagetype}_{exptime}_{timestamp}.fits"
+    
+    The FITS header is automatically updated with:
+    - DATE-OBS: UTC date/time of exposure start
+    - DATE: UTC date/time when the file was written
+    - WCS information (if provided)
     """
 
     # transform image to numpy array
