@@ -20,9 +20,9 @@ def create_image_dir(
     """
     Create a directory to store images.
 
-    This function creates a directory to store images. If a user-specified directory 
-    is provided, it is used. Otherwise, the directory is created in the 'images' 
-    folder with a name based on the schedule's beginning date (shifted to local 
+    This function creates a directory to store images. If a user-specified directory
+    is provided, it is used. Otherwise, the directory is created in the 'images'
+    folder with a name based on the schedule's beginning date (shifted to local
     time using site's longitude).
 
     Parameters
@@ -96,7 +96,7 @@ def transform_image_to_array(
     - 0, 1: uint16
     - 2: uint16 (if maxadu <= 65535) or int32 (if maxadu > 65535)
     - 3: float64
-    
+
     The transpose operations are required to match FITS file conventions
     where the first axis corresponds to columns and the second to rows.
     """
@@ -176,7 +176,7 @@ def save_image(
     - Light frames: "{device}_{filter}_{object}_{exptime}_{timestamp}.fits"
     - Bias/Dark frames: "{device}_{imagetype}_{exptime}_{timestamp}.fits"
     - Other frames: "{device}_{filter}_{imagetype}_{exptime}_{timestamp}.fits"
-    
+
     The FITS header is automatically updated with:
     - DATE-OBS: UTC date/time of exposure start
     - DATE: UTC date/time when the file was written
