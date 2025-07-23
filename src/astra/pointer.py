@@ -589,7 +589,7 @@ class PointingCorrectionHandler:
         # tolerate 10% less stars matched
         if number_of_matched_stars < number_of_stars_to_match:
             raise Exception(
-                f"Plate solve failed, not enough stars matched. {number_of_matched_stars}/{number_of_stars_to_match} stars matched."
+                f"Plate solve failed, not enough stars matched. {int(number_of_matched_stars)} stars matched of {int(number_of_stars_to_match)} required."
             )
 
     def __repr__(self):
