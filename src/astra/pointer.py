@@ -482,8 +482,7 @@ class PointingCorrectionHandler:
         cls._verify_plate_solve(
             image_star_mapping,
             pixel_threshold=20,
-            number_of_stars_to_match=number_of_stars_to_use
-            * 0.9,  # tolerate 10% less stars matched
+            number_of_stars_to_match=np.floor(number_of_stars_to_use * 0.8),
         )
 
         return cls(
