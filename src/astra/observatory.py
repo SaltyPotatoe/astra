@@ -3091,6 +3091,17 @@ class Observatory:
             )
             pointing_correction = pointing_corrector_handler.pointing_correction
 
+            number_of_stars_to_use = min(
+                len(pointing_corrector_handler.image_star_mapping.stars_in_image), 16
+            )
+
+            self.logger.info(
+                f"Plate solve succeeded using {number_of_stars_to_use} identified stars and "
+                f"{len(pointing_corrector_handler.image_star_mapping.gaia_stars_in_image)} catalog stars. "
+                f"{pointing_corrector_handler.image_star_mapping.number_of_matched_stars()} stars matched, "
+                f"meeting the Astra requirement of at least {np.floor(number_of_stars_to_use * 0.8):.0f} stars (80% of {number_of_stars_to_use})."
+            )
+
         except Exception as e:
             self.logger.warning(
                 f"Failed running pointing correction for {action_value['object']}"

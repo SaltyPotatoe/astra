@@ -579,7 +579,7 @@ class PointingCorrectionHandler:
     @staticmethod
     def _verify_plate_solve(
         image_star_mapping: ImageStarMapping,
-        pixel_threshold: int = 10,
+        pixel_threshold: int = 20,
         number_of_stars_to_match: int = 4,
     ):
         number_of_matched_stars = image_star_mapping.number_of_matched_stars(
@@ -589,7 +589,7 @@ class PointingCorrectionHandler:
         # tolerate 10% less stars matched
         if number_of_matched_stars < number_of_stars_to_match:
             raise Exception(
-                f"Plate solve failed, not enough stars matched. {int(number_of_matched_stars)} stars matched of {int(number_of_stars_to_match)} required."
+                f"Plate solve failed: only {number_of_matched_stars:.0f} stars matched out of {number_of_stars_to_match:.0f} required."
             )
 
     def __repr__(self):
