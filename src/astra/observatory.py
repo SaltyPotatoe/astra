@@ -562,13 +562,21 @@ class Observatory:
                                 f"Error starting polling for {device_type} {device_name}: {str(e)}"
                             )
 
-        delay = 1  # seconds
         if "SafetyMonitor" in self.config:
             device_type = "SafetyMonitor"
             device_name = self.config[device_type][0]["device_name"]
 
             device = self.devices[device_type][device_name]
             try:
+                # find polling delay in self.config
+                delay = next(
+                    (
+                        d.get("polling_delay", 1)
+                        for d in self.config[device_type]
+                        if d["device_name"] == device_name
+                    ),
+                    1,  # default fallback if device not found
+                )
                 device.start_poll("IsSafe", delay)  # 1 second polling
             except Exception as e:
                 self.error_source.append(
