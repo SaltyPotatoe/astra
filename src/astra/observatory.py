@@ -222,8 +222,10 @@ class Observatory:
         self.robotic_switch = False
 
         # schedule
-        self.schedule_path = CONFIG.paths.schedules / f"{self.name}.csv"
-        # self.schedule_path = CONFIG.paths.schedules / f"{self.name}.jsonl" # TODO: change to this in future
+        # self.schedule_path = CONFIG.paths.schedules / f"{self.name}.csv"
+        self.schedule_path = (
+            CONFIG.paths.schedules / f"{self.name}.jsonl"
+        )  # TODO: change to this in future
         self.schedule_mtime = self.get_schedule_mtime()
         self.schedule = None
         if self.schedule_mtime != 0:
@@ -1523,7 +1525,7 @@ class Observatory:
                             )
 
     def close_observatory(
-        self, paired_devices: dict | None = None, error_sensitive: bool = True
+        self, paired_devices: PairedDevices | None = None, error_sensitive: bool = True
     ) -> bool:
         """
         Close the observatory in a safe, controlled sequence.
@@ -1692,7 +1694,7 @@ class Observatory:
             - Truncation moves schedule to current time for testing
             - File modification time is tracked to enable automatic reloading
         """
-        # TODO: schedule validity checker, add schedule as string to log?
+        # TODO: schedule validity checker
 
         try:
             schedule_mtime = self.get_schedule_mtime()
@@ -2225,7 +2227,7 @@ class Observatory:
             f"Running pre_sequence for {row['device_name']} {row['action_type']} {row['action_value']}"
         )
 
-        action_value: dict = eval(row["action_value"])
+        action_value: dict = row["action_value"]
 
         # prepare observatory for sequence
         self.setup_observatory(paired_devices, action_value)
@@ -2833,7 +2835,7 @@ class Observatory:
 
         # stop guiding at end of sequence
         if action_value.get("guiding", False):
-            self.stop_guider(row["device_name"])
+            self.stop_guider(paired_devices["Telescope"])
 
         # stop telescope tracking at end of sequence
         if "Telescope" in paired_devices:
@@ -3252,7 +3254,7 @@ class Observatory:
         self.threads.append(
             {
                 "type": "guider",
-                "device_name": row["device_name"],
+                "device_name": paired_devices["Telescope"],
                 "thread": th,
                 "id": "guider",
             }

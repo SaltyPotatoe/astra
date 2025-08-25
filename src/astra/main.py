@@ -16,9 +16,13 @@ import pandas as pd
 import uvicorn
 from astropy.io import fits
 from astropy.visualization import ZScaleInterval
-from fastapi import FastAPI, Request, WebSocket
+from fastapi import FastAPI, Request, WebSocket, Body, UploadFile, File
 from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
 from fastapi.templating import Jinja2Templates
+import json
+
+import json
+
 
 from astra import ASTRA_VER, Config
 from astra.observatory import Observatory
@@ -317,6 +321,72 @@ async def schedule(observatory: str):
         return schedule.to_dict(orient="records")
     else:
         return []
+
+
+@app.post("/api/editschedule/{observatory}")
+async def edit_schedule(
+    observatory: str, schedule_data: str = Body(..., media_type="text/plain")
+):
+    obs = OBSERVATORIES[observatory]
+
+    schedule_path = obs.schedule_path
+
+    try:
+        # Parse the JSONL data
+        lines = schedule_data.strip().split("\n")
+        schedule_items = []
+        for line in lines:
+            if line.strip():
+                schedule_items.append(json.loads(line.strip()))
+
+        # Convert to DataFrame and save as JSONL
+        df = pd.DataFrame(schedule_items)
+        df.to_json(schedule_path, orient="records", lines=True)
+
+        obs.logger.info(
+            f"Schedule updated with {len(schedule_items)} items from editor"
+        )
+
+        return {
+            "status": "success",
+            "data": None,
+            "message": f"Schedule updated with {len(schedule_items)} items",
+        }
+
+    except Exception as e:
+        obs.logger.error(f"Error updating schedule: {e}")
+        return {
+            "status": "error",
+            "data": None,
+            "message": f"Error updating schedule: {str(e)}",
+        }
+
+
+# upload schedule file
+@app.post("/api/uploadschedule/{observatory}")
+async def upload_schedule(observatory: str, file: UploadFile = File(...)):
+    obs = OBSERVATORIES[observatory]
+
+    try:
+        # Save the uploaded file
+        file_path = obs.schedule_path
+        with open(file_path, "wb") as f:
+            f.write(await file.read())
+
+        obs.logger.info(f"Schedule uploaded from web interface")
+
+        return {
+            "status": "success",
+            "data": None,
+            "message": "Schedule uploaded successfully",
+        }
+    except Exception as e:
+        obs.logger.warning(f"Error uploading schedule: {e}")
+        return {
+            "status": "error",
+            "data": None,
+            "message": f"Error uploading schedule: {str(e)}",
+        }
 
 
 @app.get("/api/db/polling/{observatory}/{device_type}")
@@ -885,6 +955,52 @@ async def autofocus(request: Request):
     )
 
 
+@app.get("/schedule/{observatory}")
+async def get_schedule(request: Request, observatory: str):
+    obs = OBSERVATORIES[observatory]
+
+    # Read the raw JSONL file to preserve original datetime string format
+    schedule_path = obs.schedule_path
+    try:
+        with open(schedule_path, "r") as f:
+            schedule_jsonl = f.read().strip()
+    except (FileNotFoundError, IOError):
+        schedule_jsonl = ""
+
+    return FRONTEND.TemplateResponse(
+        "schedule.html.j2",
+        {
+            "request": request,
+            "observatory": observatory,
+            "schedule": schedule_jsonl,
+        },
+        request=request,
+    )
+
+
+@app.get("/schedule/{observatory}")
+async def get_schedule(request: Request, observatory: str):
+    obs = OBSERVATORIES[observatory]
+
+    # Read the raw JSONL file to preserve original datetime string format
+    schedule_path = obs.schedule_path
+    try:
+        with open(schedule_path, "r") as f:
+            schedule_jsonl = f.read().strip()
+    except (FileNotFoundError, IOError):
+        schedule_jsonl = ""
+
+    return FRONTEND.TemplateResponse(
+        "schedule.html.j2",
+        {
+            "request": request,
+            "observatory": observatory,
+            "schedule": schedule_jsonl,
+        },
+        request=request,
+    )
+
+
 @app.get("/{path:path}", include_in_schema=False)
 async def serve_files(request: Request, path: str = ""):
     if path == "":
@@ -917,6 +1033,9 @@ def main():
 
     parser = argparse.ArgumentParser(description="Run Astra")
     parser.add_argument("--debug", action="store_true", help="run in debug mode")
+    parser.add_argument(
+        "--port", type=int, default=8000, help="port to run the server on"
+    )
     parser.add_argument(
         "--truncate",
         type=float,
@@ -969,7 +1088,7 @@ def main():
     uvicorn.run(
         app,
         host="0.0.0.0",
-        port=8000,
+        port=args.port,
         log_level=log_level,
         timeout_graceful_shutdown=None,
     )
