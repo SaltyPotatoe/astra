@@ -632,7 +632,6 @@ class TestScheduleActionTypes:
             ), f"object action did not complete successfully. Error sources: {observatory.error_source}"
             assert completed > 0, "No actions were completed"
 
-
     def test_autofocus_action(self, observatory, schedule_manager):
         """Test autofocus action type"""
         schedule_data = create_schedule_data("autofocus")
@@ -649,6 +648,24 @@ class TestScheduleActionTypes:
                 success
             ), f"autofocus action did not complete successfully. Error sources: {observatory.error_source}"
             assert completed > 0, "No actions were completed"
+
+    def test_autofocus_action_with_weather_alert(self, observatory, schedule_manager):
+        """Test autofocus action type with weather alert"""
+        schedule_data = create_schedule_data("autofocus", inject_weather_alert=True)
+
+        with schedule_manager(schedule_data):
+            success, completed, error_free_maintained = wait_for_schedule_completion(
+                observatory, schedule_data
+            )
+
+            assert (
+                error_free_maintained
+            ), f"error_free became False during autofocus action. Error sources: {observatory.error_source}"
+            assert (
+                success
+            ), f"autofocus action did not complete successfully. Error sources: {observatory.error_source}"
+            assert completed > 0, "No actions were completed"
+
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
