@@ -1037,6 +1037,10 @@ class Observatory:
                                     weather_sensitive=False,
                                     error_sensitive=False,
                                 )
+
+                    # update heartbeat dictionary for last status
+                    self.update_heartbeat()
+
                 except Exception as e:
                     self.logger.error(
                         f"Error during error handling: {str(e)}",
