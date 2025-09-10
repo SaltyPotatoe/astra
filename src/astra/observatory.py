@@ -538,7 +538,7 @@ class Observatory:
                         # find polling delay in self.config
                         delay = next(
                             (
-                                d.get("polling_delay", 5)
+                                d.get("polling_interval", 5)
                                 for d in self.config[device_type]
                                 if d["device_name"] == device_name
                             ),
@@ -570,7 +570,7 @@ class Observatory:
                 # find polling delay in self.config
                 delay = next(
                     (
-                        d.get("polling_delay", 1)
+                        d.get("polling_interval", 1)
                         for d in self.config[device_type]
                         if d["device_name"] == device_name
                     ),
@@ -1545,10 +1545,10 @@ class Observatory:
 
         Performs the complete observatory shutdown sequence to ensure equipment
         safety and protection from weather. The sequence follows this order:
-        1. Stop telescope slewing and tracking
-        2. Park the telescope to safe position
-        3. Stop any active guiding operations
-        4. Park the dome and close shutter (if present)
+        1. Stop any active guiding operations
+        2. Stop telescope slewing and tracking
+        3. Park the telescope to safe position
+        4. Park the dome and close shutter (if dome present)
 
         For SPECULOOS observatories, includes special error handling and polling
         management during the closure sequence.
@@ -2772,7 +2772,6 @@ class Observatory:
         - Multiple exposure time support
         - Automatic pointing correction for object sequences
         - Optional autoguiding activation and management
-        - Dithering pattern support for object sequences
         - Continuous condition monitoring throughout sequence
 
         Process Flow:
@@ -3518,7 +3517,7 @@ class Observatory:
         Execute a flat field calibration sequence during twilight.
 
         Captures flat field images during astronomical twilight when the sky
-        provides uniform illumination. Automatically manages telescope positioning,
+        provides near-uniform illumination. Automatically manages telescope positioning,
         exposure timing, and filter changes to create comprehensive flat field
         libraries for image calibration.
 
