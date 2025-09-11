@@ -4,18 +4,18 @@
 [![Docs](https://img.shields.io/badge/docs-brightgreen.svg)](https://docs.withastra.io/)
 [![Issues](https://img.shields.io/github/issues/ppp-one/astra)](https://github.com/ppp-one/astra/issues)
 
-Astra (**Automated Survey observaTory Robotised with Alpaca**) is an open-source observatory control system for automating and managing survey observatories. It integrates seamlessly with **ASCOM Alpaca** for hardware control.
+Astra (**Automated Survey observaTory Robotised with Alpaca**) is an open-source observatory control software for automating and managing robotic observatories. It integrates seamlessly with [ASCOM Alpaca](https://ascom-standards.org/api/) for hardware control.
 
-![Astra themed art](astra-art.png)
+![Astra themed art](docs/source/_static/astra-banner.jpg)
 
 ---
 
 ## Features
 
-- **Fully Robotic** — Schedule once, observe automatically  
-- **ASCOM Alpaca** — Compatible with your existing equipment  
-- **Cross-Platform** — 100% Python, runs on Windows, Linux, macOS  
-- **Web Interface** — Manage your observatory from any browser  
+- **Fully Robotic** — Schedule once, observe automatically with error and bad weather handling
+- **ASCOM Alpaca** — Compatible with your existing ASCOM equipment  
+- **Cross-Platform** — Python based, runs on Windows, Linux, macOS  
+- **Web Interface** — Manage your observatory from any browser, use [cloudflared](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/get-started/) or similar to access outside your network
 - **[Comprehensive Docs](https://docs.withastra.io/)** — Setup, usage, and module reference  
 
 ---
