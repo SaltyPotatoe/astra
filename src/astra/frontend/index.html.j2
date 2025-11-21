@@ -1090,7 +1090,7 @@
         function loadWebcam(containerId) {
             const container = document.getElementById(containerId);
             if (container) {
-                container.innerHTML = `<iframe src="/video" class="w-full rounded-lg aspect-square"></iframe>`;
+                container.innerHTML = `<iframe src="/video/" class="w-full rounded-lg aspect-square"></iframe>`;
                 // Remove padding/centering classes if needed after iframe loads
                 container.classList.remove('items-center', 'bg-gray-600/20');
             }
