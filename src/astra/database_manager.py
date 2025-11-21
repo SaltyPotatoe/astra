@@ -220,6 +220,10 @@ class DatabaseManager:
                     f"SELECT * FROM {table} WHERE datetime > datetime('now', '-1 days')",
                     db,
                 )
+
+                if df.empty:
+                    continue
+
                 dt_str = (
                     df["datetime"]
                     .iloc[0]
