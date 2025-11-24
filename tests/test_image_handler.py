@@ -248,7 +248,7 @@ class TestImageHandler:
         filepath = Path(temp_config.paths.images) / image_directory
         filepath.mkdir(exist_ok=True)
         handler = ImageHandler(header, filepath)
-        handler.last_action_start_time = datetime.datetime(
+        handler.observing_date = datetime.datetime(
             2024, 5, 15, 12, 0, 0, tzinfo=datetime.UTC
         )
         return handler, image, info, maxadu, device_name, exposure_start_datetime
@@ -526,22 +526,19 @@ class TestImageHandler:
         handler = ImageHandler(header, image_directory=None)
         assert handler.has_image_directory() is False
 
-    def test_get_default_action_start_time(self):
+    def test_get_default_observing_date(self):
         # Test with default longitude
-        result = ImageHandler.get_default_action_start_time()
+        result = ImageHandler.get_default_observing_date()
         assert isinstance(result, datetime.datetime)
         # Test with custom longitude
-        result_custom = ImageHandler.get_default_action_start_time(longitude=120.0)
+        result_custom = ImageHandler.get_default_observing_date(longitude=120.0)
         assert isinstance(result_custom, datetime.datetime)
         # Should be offset by longitude/15 hours
-        expected_offset = datetime.timedelta(hours=120.0 / 15)
-        assert (
-            abs(
-                (result_custom - result).total_seconds()
-                - expected_offset.total_seconds()
-            )
-            < 1
-        )
+        # Since it returns midnight, we check the date part
+        now = datetime.datetime.now(datetime.UTC)
+        expected_date = (now + datetime.timedelta(hours=120.0 / 15)).date()
+        assert result_custom.date() == expected_date
+        assert result_custom.time() == datetime.time.min
 
     def test_set_image_dir(self, temp_config):
         # Test user-specified directory
@@ -578,7 +575,7 @@ class TestImageHandler:
         )
         assert isinstance(handler, ImageHandler)
         assert handler.image_directory == Path("/tmp/test")
-        assert handler.last_action_start_time == datetime.datetime(2025, 1, 1)
+        assert handler.observing_date == datetime.datetime(2025, 1, 1)
 
     @patch("astra.image_handler.get_sun")
     @patch("astra.image_handler.AltAz")
@@ -619,7 +616,7 @@ class TestImageHandler:
         header["EXPTIME"] = 60.0
         image_directory = Path(temp_config.paths.images) / "test"
         handler = ImageHandler(header, image_directory)
-        handler.last_action_start_time = datetime.datetime(
+        handler.observing_date = datetime.datetime(
             2024, 5, 15, 12, 0, 0, tzinfo=datetime.UTC
         )
         date = datetime.datetime(2024, 5, 15, 12, 0, 0, tzinfo=datetime.UTC)

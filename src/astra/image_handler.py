@@ -81,17 +81,17 @@ class ImageHandler:
         image_directory: Path | None = None,
         filename_templates: FilenameTemplates | None = None,
         logger: logging.Logger | None = None,
-        last_action_start_time: datetime.datetime | None = None,
+        observing_date: datetime.datetime | None = None,
     ):
         self.header = header
         self._image_directory = Path(image_directory) if image_directory else None
         self.last_image_path: Path | None = None
         self.last_image_timestamp: datetime.datetime | None = None
 
-        self.last_action_start_time = (
-            last_action_start_time
-            if last_action_start_time is not None
-            else self.get_default_action_start_time()
+        self.observing_date = (
+            observing_date
+            if observing_date is not None
+            else self.get_default_observing_date()
         )
         self.filename_templates = (
             filename_templates
@@ -134,7 +134,7 @@ class ImageHandler:
             observatory_config.get("Misc", {}).get("filename_templates", {})
         )
         location = header.get_observatory_location()
-        last_action_start_time = cls.get_observing_night_date(
+        observing_date = cls.get_observing_night_date(
             datetime.datetime.now(datetime.UTC), location
         )
 
@@ -143,7 +143,7 @@ class ImageHandler:
             image_directory=image_directory,
             filename_templates=filename_templates,
             logger=logger,
-            last_action_start_time=last_action_start_time,
+            observing_date=observing_date,
         )
 
     def save_image(
@@ -241,8 +241,8 @@ class ImageHandler:
             sequence_counter=sequence_counter,
             timestamp=date.strftime("%Y%m%d_%H%M%S.%f")[:-3],
             datetime_timestamp=date,
-            action_date=self.last_action_start_time.strftime("%Y%m%d"),
-            action_datetime=self.last_action_start_time,
+            action_date=self.observing_date.strftime("%Y%m%d"),
+            action_datetime=self.observing_date,
             datetime=datetime,
         )
 
@@ -373,7 +373,6 @@ class ImageHandler:
         Returns:
             datetime.datetime: The observing night date (at midnight).
         """
-        print("Calculating observing night date...")
         # Calculate sun altitude
         time = Time(observation_time, location=location)
         sun = get_sun(time)
@@ -394,18 +393,15 @@ class ImageHandler:
             else:
                 # Evening -> Today
                 obs_date = local_time.date()
-        print(
-            f"Observing night date determined as {datetime.datetime.combine(obs_date, datetime.time.min)}"
-        )
 
         return datetime.datetime.combine(obs_date, datetime.time.min)
 
     @staticmethod
-    def get_default_action_start_time(longitude: float = 0):
-        return (
-            datetime.datetime.now(datetime.UTC)
-            + datetime.timedelta(hours=longitude / 15)  # type: ignore
+    def get_default_observing_date(longitude: float = 0):
+        dt = datetime.datetime.now(datetime.UTC) + datetime.timedelta(
+            hours=longitude / 15
         )
+        return datetime.datetime.combine(dt.date(), datetime.time.min)
 
     def __repr__(self):
         return (
