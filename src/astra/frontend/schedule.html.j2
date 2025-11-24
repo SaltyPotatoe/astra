@@ -790,6 +790,21 @@
         }
         }
 
+        // Set field to current UTC time
+        function setNow(index, field) {
+            const now = new Date();
+            const year = now.getUTCFullYear();
+            const month = String(now.getUTCMonth() + 1).padStart(2, '0');
+            const day = String(now.getUTCDate()).padStart(2, '0');
+            const hours = String(now.getUTCHours()).padStart(2, '0');
+            const minutes = String(now.getUTCMinutes()).padStart(2, '0');
+            const seconds = String(now.getUTCSeconds()).padStart(2, '0');
+            const nowStr = `${year}-${month}-${day}T${hours}:${minutes}:${seconds}`;
+            
+            updateItem(index, field, nowStr);
+            renderTable();
+        }
+
         // Render the schedule table
         function renderTable() {
             const tbody = document.getElementById('scheduleTable');
@@ -834,18 +849,36 @@
                                   placeholder="Enter JSON object">${JSON.stringify(item.action_value || {}, null, 2)}</textarea>
                     </td>
                     <td class="p-2" data-label="Start Time (UTC)">
-                        <input type="datetime-local" 
-                               value="${formatDateTimeLocal(item.start_time)}" 
-                               step="1"
-                               class="w-full bg-gray-700/50 border border-gray-600/50 rounded-lg px-2 py-1 text-sm focus:border-blue-500/50 focus:ring-1 focus:ring-blue-500/25 transition-colors"
-                               onchange="updateItem(${index}, 'start_time', this.value)">
+                        <div class="flex items-center space-x-1">
+                            <input type="datetime-local" 
+                                   value="${formatDateTimeLocal(item.start_time)}" 
+                                   step="1"
+                                   class="w-full bg-gray-700/50 border border-gray-600/50 rounded-lg px-2 py-1 text-sm focus:border-blue-500/50 focus:ring-1 focus:ring-blue-500/25 transition-colors"
+                                   onchange="updateItem(${index}, 'start_time', this.value)">
+                            <button onclick="setNow(${index}, 'start_time')" 
+                                    class="p-1.5 bg-gray-700/50 hover:bg-gray-600/80 border border-gray-600/50 rounded-lg text-gray-400 hover:text-white transition-colors"
+                                    title="Set to current UTC time">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                                </svg>
+                            </button>
+                        </div>
                     </td>
                     <td class="p-2" data-label="End Time (UTC)">
-                        <input type="datetime-local" 
-                               value="${formatDateTimeLocal(item.end_time)}" 
-                               step="1"
-                               class="w-full bg-gray-700/50 border border-gray-600/50 rounded-lg px-2 py-1 text-sm focus:border-blue-500/50 focus:ring-1 focus:ring-blue-500/25 transition-colors"
-                               onchange="updateItem(${index}, 'end_time', this.value)">
+                        <div class="flex items-center space-x-1">
+                            <input type="datetime-local" 
+                                   value="${formatDateTimeLocal(item.end_time)}" 
+                                   step="1"
+                                   class="w-full bg-gray-700/50 border border-gray-600/50 rounded-lg px-2 py-1 text-sm focus:border-blue-500/50 focus:ring-1 focus:ring-blue-500/25 transition-colors"
+                                   onchange="updateItem(${index}, 'end_time', this.value)">
+                            <button onclick="setNow(${index}, 'end_time')" 
+                                    class="p-1.5 bg-gray-700/50 hover:bg-gray-600/80 border border-gray-600/50 rounded-lg text-gray-400 hover:text-white transition-colors"
+                                    title="Set to current UTC time">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                                </svg>
+                            </button>
+                        </div>
                     </td>
                     <td class="p-2" data-label="Actions">
                         <div class="flex space-x-1 justify-end">
@@ -1091,6 +1124,14 @@
                 e.preventDefault();
                 e.returnValue = '';
                 return '';
+            }
+        });
+
+        // Handle Ctrl+S / Cmd+S to save
+        document.addEventListener('keydown', function(e) {
+            if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+                e.preventDefault();
+                saveSchedule();
             }
         });
 
