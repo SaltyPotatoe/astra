@@ -877,6 +877,9 @@ class Guider:
                     continue
 
                 return newest_image, newest_field, newest_filter, newest_exptime
+            else:
+                time.sleep(0.1)
+                continue
 
         return None, None, None, None
 
