@@ -1012,6 +1012,21 @@
 
             } else if (type == 'log') {
                 let logDiv = document.getElementById("log-0");
+                let divParent = document.getElementById("log-0-parent");
+                
+                // Check if we are at the bottom before adding new content
+                let scrollBottom = divParent.scrollHeight - divParent.scrollTop - divParent.clientHeight;
+                let isAtBottom = scrollBottom < 100;
+
+                // Fallback: check if last element is roughly in view (handles container resize/wrapping)
+                if (!isAtBottom && logDiv.lastElementChild) {
+                    let lastRect = logDiv.lastElementChild.getBoundingClientRect();
+                    let parentRect = divParent.getBoundingClientRect();
+                    if (lastRect.top < parentRect.bottom + 250) {
+                        isAtBottom = true;
+                    }
+                }
+
                 let fragment = document.createDocumentFragment();
 
                 let log = message['log'];
@@ -1041,25 +1056,12 @@
                     let div = document.getElementById("log-0-parent");
                     let divChild = document.getElementById("log-0");
 
-                    // get current scroll position
-                    let scrollPos = div.scrollTop;
-                    // get total height of the div
-                    let divHeight = div.scrollHeight;
-                    // get height of the div that is visible
-                    let visibleHeight = div.clientHeight;
-
-                    let misc = scrollPos + visibleHeight - divHeight;
-
-                    // console.log(scrollPos + visibleHeight + 300 + 100 * log.length >= divHeight && misc <= -10);
-                    // console.log("misc:", misc);
-                    // console.log("log length:", log.length);
-                    // console.log("scrollPos", scrollPos);
-                    // console.log("visibleHeight", visibleHeight);
-                    // console.log("divHeight", divHeight);
-                    // if the div is scrolled to the bottom
-                    if (scrollPos + visibleHeight + 300 + 100 * log.length >= divHeight && misc <= -10) {
+                    if (isAtBottom) {
                         div.scrollTop = div.scrollHeight;
                     }
+
+                    let scrollPos = div.scrollTop;
+                    let divHeight = div.scrollHeight;
 
                     if (scrollPos < 10) {
                         // get datetime of first log by getting title of first child
