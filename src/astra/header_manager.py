@@ -593,6 +593,7 @@ class HeaderManager:
         fits_config: pd.DataFrame,
     ):
         length = df_images_filt.shape[0]
+        processed_files = []
         for row_index, row in df_images_filt.iterrows():
             try:
                 # update logger every 10%
@@ -611,8 +612,16 @@ class HeaderManager:
             except FileNotFoundError:
                 logger.warning(f"Error completing headers: {row['filepath']}")
             finally:
+                processed_files.append(row["filepath"])
+
+        if processed_files:
+            # Update in batches to avoid SQL query length limits
+            batch_size = 10
+            for i in range(0, len(processed_files), batch_size):
+                batch = processed_files[i : i + batch_size]
+                files_str = '", "'.join(batch)
                 database_manager.execute(
-                    f'''UPDATE images SET complete_hdr = 1 WHERE filename="{row["filepath"]}"'''
+                    f'UPDATE images SET complete_hdr = 1 WHERE filename IN ("{files_str}")'
                 )
 
     @staticmethod
