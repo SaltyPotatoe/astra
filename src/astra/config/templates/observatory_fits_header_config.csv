@@ -47,7 +47,7 @@ FW-POS,str,false,FilterWheel,Position,FilterWheel position
 FW-NAME,str,true,FilterWheel,Name,FilterWheel name
 FW-DVER,str,true,FilterWheel,DriverVersion,FilterWheel driver version
 ,,,,,
-FOCUSPOS,float,false,Focuser,Position,[mm] Focuser position
+FOCUSPOS,float,false,Focuser,Position,[steps] Focuser position
 FOCUSSSZ,float,true,Focuser,StepSize,[micron] Focuser step size
 FOCUSTEM,float,false,Focuser,Temperature,[Celsius] Focuser temperature
 ,,,,,
