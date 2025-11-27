@@ -68,4 +68,10 @@ Released under the [GNU GPL v3](LICENSE).
 
 If you use Astra in published research, please cite it as:
 ```
-P. P. Parry, "Astra: Automated Survey observaTory Robotised with
+@software{Pedersen_Astra,
+author = {Pedersen, Peter P. and Degen, David and Garcia, Lionel and Zúñiga-Fernández, Sebastián and Sebastian, Daniel and Queloz, Didier},
+license = {GPL-3.0},
+title = {{Astra}},
+url = {https://github.com/ppp-one/astra}
+}
+```

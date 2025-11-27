@@ -8,7 +8,7 @@ message: >-
   metadata from this file.
 type: software
 authors:
-  - given-names: Peter Pihlmann
+  - given-names: Peter P.
     family-names: Pedersen
     email: ppedersen@phys.ethz.ch
     affiliation: >-
@@ -38,6 +38,12 @@ authors:
     orcid: 'https://orcid.org/0000-0002-2214-9258'
     affiliation: Thüringer Landessternwarte
     email: sebastian@tls-tautenburg.de
+  - given-names: Didier
+    family-names: Queloz
+    orcid: 'https://orcid.org/0000-0002-3012-0316'
+    affiliation: >-
+      ETH Zürich, Department of Physics, ETH Zurich,
+      Wolfgang-Pauli-Strasse 2, 8093 Zurich, Switzerland
 identifiers:
   - type: url
     value: 'https://github.com/ppp-one/astra'
