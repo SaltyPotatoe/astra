@@ -237,6 +237,14 @@ class SafetyMonitor:
             internal_max_safe_duration,
         ) = self.check_internal_conditions()
 
+        # if internal safety monitor is False, act on it
+        if internal_safety is False:
+            self._weather_safe = False
+
+            # log message saying weather unsafe
+            if self._weather_log_warning is False:
+                self.logger.warning("Weather unsafe from internal safety monitor")
+
         # Decide time_to_safe
         if weather_unsafe_stats[0][0] > 0 or internal_time_to_safe > 0:
             if weather_unsafe_stats[0][1] is not None:
