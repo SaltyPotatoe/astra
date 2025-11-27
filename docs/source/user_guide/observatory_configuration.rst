@@ -53,6 +53,7 @@ Telescope Configuration
 Additional parameters for telescope mounts:
 
 - ``pointing_threshold``: Maximum acceptable pointing error in arcminutes if pointing correction enabled (float)
+- ``settle_factor``: Exposure multiplier for calculated settle time after pointing (float)
 - ``guider``: Autoguider calibration settings (dict, populated automatically by the `calibrate_guiding` sequence)
 
 Focuser Configuration
@@ -61,6 +62,7 @@ Focuser Configuration
 Focuser-specific parameters:
 
 - ``focus_position``: Best known absolute focus position (integer)
+- ``settle_time``: Time in seconds to wait after move (integer)
 
 
 Camera Configuration
@@ -89,6 +91,14 @@ Camera-specific parameters for cooling and imaging:
 - ``paired_devices``: Links to other devices for FITS headers and sequence coordination (dict)
   
   - ``<device_type>``: Must match the ``device_name`` used in device configuration (string)
+
+**Autofocus Parameters:**
+
+- ``autofocus``: Configuration for automated focusing (dict)
+
+  - ``airmass_threshold``: Maximum airmass to query local star catalogue (float)
+  - ``exptime``: Exposure time for autofocus frames in seconds (float)
+  - ``g_mag_range``: Range of G magnitudes for star selection [min, max] (list of float)
 
 
 Dome Configuration
