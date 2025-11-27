@@ -1,105 +1,106 @@
 Telescope:
-  - device_name: telescope_observatoryname
-    ip: localhost:11111
-    device_number: 0
-    pointing_threshold: 0.1 # arcmins
-    settle_factor: 0.0
-    guider: # populated using calibrate_guiding sequence
-      PIX2TIME: # ms/pixel for camera used for guiding
-        "+x": 69.32860207831231
-        "-x": 69.05795081331794
-        "+y": 69.32860207831231
-        "-y": 69.32860207831231
-      RA_AXIS: "y"
-      DIRECTIONS:
-        "+x": North
-        "-x": South
-        "+y": East
-        "-y": West
-      PID_COEFFS: # defaults
-        "x": { "p": 0.70, "i": 0.02, "d": 0.0 }
-        "y": { "p": 0.50, "i": 0.02, "d": 0.0 }
-        "set_x": 0.0
-        "set_y": 0.0
-      MIN_GUIDE_INTERVAL: 30.0 # seconds
+- device_name: telescope_observatoryname
+  ip: localhost:11111
+  device_number: 0
+  pointing_threshold: 0.1   # arcmins
+  settle_factor: 0.0 # exposure multiplier for calculated settle time after pointing (for SPIRIT like cameras)
+  guider:   # populated using calibrate_guiding sequence
+    PIX2TIME:   # ms/pixel for camera used for guiding
+      +x: 71.62908053771561
+      -x: 71.62926906533114
+      +y: 71.62775367838461
+      -y: 71.62771750106279
+    RA_AXIS: "x"
+    DIRECTIONS:
+      +x: East
+      -x: West
+      +y: North
+      -y: South
+    PID_COEFFS:   # defaults
+      "x": {"p": 0.70, "i": 0.02, "d": 0.0}
+      "y": {"p": 0.50, "i": 0.02, "d": 0.0}
+      "set_x": 0.0
+      "set_y": 0.0
+    MIN_GUIDE_INTERVAL: 60   # seconds
 Focuser:
-  - device_name: focuser_observatoryname
-    ip: localhost:11111
-    device_number: 0
-    focus_position: 10000
-    settle_time: 3
-    connectable: true
+- device_name: focuser_observatoryname
+  ip: localhost:11111
+  device_number: 0
+  focus_position: 10000
+  settle_time: 3 # seconds
+  connectable: true
 Camera:
-  - device_name: camera_observatoryname
-    ip: localhost:11111
-    device_number: 0
-    temperature: -20
-    temperature_tolerance: 1
-    cooling_timeout: 30
-    flats:
-      target_adu: 31500
-      target_adu_tolerance: 10500
-      bias_offset: 300
-      lower_exptime_limit: 1
-      upper_exptime_limit: 60
-    paired_devices:
-      Telescope: telescope_observatoryname
-      Focuser: focuser_observatoryname
-      Dome: dome_observatoryname
-      FilterWheel: fw_observatoryname
-      ObservingConditions: weather_observatoryname
-      SafetyMonitor: safety_observatoryname
-    autofocus:
-      airmass_threshold: 1.01
-      exptime: 3.0
-      g_mag_range:
-      - 0
-      - 10
+- device_name: camera_observatoryname
+  ip: localhost:11111
+  device_number: 0
+  temperature: -20
+  temperature_tolerance: 1
+  cooling_timeout: 30 # minutes
+  flats:
+    target_adu: 31500
+    target_adu_tolerance: 10500
+    bias_offset: 300
+    lower_exptime_limit: 1
+    upper_exptime_limit: 60
+  paired_devices:
+    Telescope: telescope_observatoryname
+    Focuser: focuser_observatoryname
+    Dome: dome_observatoryname
+    FilterWheel: fw_observatoryname
+    ObservingConditions: weather_observatoryname
+    SafetyMonitor: safety_observatoryname
+    Camera: camera_observatoryname
+  autofocus:
+    airmass_threshold: 1.01
+    exptime: 3.0
+    g_mag_range:
+    - 0
+    - 10
 Dome:
-  - device_name: dome_observatoryname
-    ip: localhost:11111
-    device_number: 0
-    close_dome_on_telescope_error: false
-    telescopes:
-      - telescope_observatoryname
+- device_name: dome_observatoryname
+  ip: localhost:11111
+  device_number: 0
+  close_dome_on_telescope_error: false
+  telescopes:
+  - telescope_observatoryname
 FilterWheel:
-  - device_name: fw_observatoryname
-    ip: localhost:11111
-    device_number: 0
+- device_name: fw_observatoryname
+  ip: localhost:11111
+  device_number: 0
 ObservingConditions:
-  - device_name: weather_observatoryname
-    ip: localhost:11111
-    device_number: 0
-    polling_interval: 5
-    closing_limits:
-      Humidity:
-        - upper: 70
-          max_safe_duration: 30
-        - upper: 80
-          max_safe_duration: 150
-        - upper: 90
-          max_safe_duration: 300
-      Temperature:
-        - lower: 0
-          max_safe_duration: 30
-      WindSpeed:
-        - upper: 10
-          max_safe_duration: 30
-      SkyTemperature:
-        - upper: -30
-          max_safe_duration: 30
-      SkyBrightness:
-        - upper: 1000
-          max_safe_duration: 30
-      RelativeSkyTemp:
-        - upper: -40
-          max_safe_duration: 30
+- device_name: weather_observatoryname
+  ip: localhost:11111
+  device_number: 0
+  polling_interval: 5
+  closing_limits:
+    Humidity:
+    - upper: 70
+      max_safe_duration: 30
+    - upper: 80
+      max_safe_duration: 150
+    - upper: 90
+      max_safe_duration: 300
+    Temperature:
+    - lower: 0
+      max_safe_duration: 30
+    WindSpeed:
+    - upper: 10
+      max_safe_duration: 30
+    SkyTemperature:
+    - upper: -30
+      max_safe_duration: 30
+    SkyBrightness:
+    - upper: 1000
+      max_safe_duration: 30
+    RelativeSkyTemp:
+    - upper: -40
+      max_safe_duration: 30
 SafetyMonitor:
-  - device_name: safety_observatoryname
-    ip: localhost:11111
-    device_number: 0
-    max_safe_duration: 30
+- device_name: safety_observatoryname
+  ip: localhost:11111
+  device_number: 0
+  max_safe_duration: 15
 
 Misc:
   # Webcam: http://localhost:8888/inside # hls stream, see https://github.com/bluenviron/mediamtx
-  backup_time: "12:00" # back up of polled data (e.g. CCDTemperature) and logs
+  backup_time: "12:00" # UTC back up time of polled data (e.g. CCDTemperature) and logs
