@@ -433,10 +433,15 @@ async function updateSkyChart() {
  * @param {Array} newTelescopeData - Array of telescope objects with name, alt, az
  */
 function updateTelescopePositions(newTelescopeData) {
-    telescopes = newTelescopeData || [];
-    // Only redraw if we have sky data (don't wait for next celestial update)
-    if (skyData) {
-        plotSkyProjection();
+    const nextTelescopes = newTelescopeData || [];
+
+    // Check if data has changed to avoid unnecessary replots
+    if (JSON.stringify(telescopes) !== JSON.stringify(nextTelescopes)) {
+        telescopes = nextTelescopes;
+        // Only redraw if we have sky data (don't wait for next celestial update)
+        if (skyData) {
+            plotSkyProjection();
+        }
     }
 }
 
