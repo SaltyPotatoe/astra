@@ -22,10 +22,37 @@ import astropy.units as u
 import numpy as np
 import pandas as pd
 from astropy.coordinates import AltAz, Angle, SkyCoord, get_sun
-from astropy.stats import SigmaClip
+from astropy.stats import SigmaClip, sigma_clipped_stats
 from astropy.time import Time
+from donuts.image import Image
 from photutils.background import Background2D, MedianBackground
 from scipy import ndimage
+
+
+class CustomImageClass(Image):
+    """Enhanced image processing class with background subtraction and cleaning."""
+
+    def preconstruct_hook(self) -> None:
+        """
+        Apply image preprocessing before Donuts star detection.
+
+        Performs background subtraction, noise reduction, and systematic
+        correction to improve star detection reliability.
+        """
+        # if greater than 1Kx1K, crop to 1Kx1K for speed
+        shapex, shapey = self.raw_image.shape
+        if shapex > 2048 and shapey > 2048:
+            self.raw_image = self.raw_image[
+                shapex // 2 - 1024 : shapex // 2 + 1024,
+                shapey // 2 - 1024 : shapey // 2 + 1024,
+            ]
+
+        self.raw_image = clean_image(self.raw_image)
+        mean, median, std = sigma_clipped_stats(self.raw_image, sigma=3.0)
+
+        # remove noise floor
+        self.raw_image -= median + 7 * std
+        self.raw_image[self.raw_image < 0] = 0
 
 
 ## for final fits header

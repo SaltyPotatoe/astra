@@ -34,9 +34,7 @@ from typing import Any, Dict, List, Optional, Tuple
 import numpy as np
 from alpaca.telescope import AlignmentModes, GuideDirections, PierSide
 from astropy.io import fits
-from astropy.stats import sigma_clipped_stats
 from donuts import Donuts
-from donuts.image import Image
 
 from astra import Config
 from astra.database_manager import DatabaseManager
@@ -44,7 +42,7 @@ from astra.image_handler import ImageHandler
 from astra.logger import ObservatoryLogger
 from astra.paired_devices import PairedDevices
 from astra.thread_manager import ThreadManager
-from astra.utils import clean_image
+from astra.utils import CustomImageClass
 
 # rejection buffer length
 GUIDE_BUFFER_LENGTH = 20
@@ -226,45 +224,6 @@ class GuiderManager:
                     return True
 
         return False
-
-
-class CustomImageClass(Image):
-    """
-    Custom image preprocessing class for robust autoguiding star detection.
-
-    Extends the Donuts Image class to apply background subtraction, median filtering,
-    and horizontal banding correction before star detection. This preprocessing
-    improves the reliability of star tracking in noisy or non-uniform images.
-
-    The preprocessing pipeline:
-    1. Background subtraction using 2D background estimation
-    2. Median filtering to reduce noise
-    3. Horizontal band correction to remove systematic gradients
-    4. Clipping to ensure positive pixel values
-    """
-
-    def preconstruct_hook(self) -> None:
-        """
-        Apply image preprocessing before Donuts star detection.
-
-        Performs background subtraction, noise reduction, and systematic
-        correction to improve star detection reliability.
-        """
-
-        # if greater than 1Kx1K, crop to 1Kx1K for speed
-        shapex, shapey = self.raw_image.shape
-        if shapex > 2048 and shapey > 2048:
-            self.raw_image = self.raw_image[
-                shapex // 2 - 1024 : shapex // 2 + 1024,
-                shapey // 2 - 1024 : shapey // 2 + 1024,
-            ]
-
-        self.raw_image = clean_image(self.raw_image)
-        mean, median, std = sigma_clipped_stats(self.raw_image, sigma=3.0)
-
-        # remove noise floor
-        self.raw_image -= median + 7 * std
-        self.raw_image[self.raw_image < 0] = 0
 
 
 class Guider:

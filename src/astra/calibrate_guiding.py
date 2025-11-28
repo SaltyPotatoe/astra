@@ -18,7 +18,6 @@ from typing import Any, Dict, Tuple
 import numpy as np
 from alpaca.telescope import GuideDirections
 from donuts import Donuts
-from donuts.image import Image
 from ruamel.yaml import YAML
 
 import astra
@@ -26,25 +25,7 @@ from astra.config import Config
 from astra.image_handler import ImageHandler
 from astra.paired_devices import PairedDevices
 from astra.scheduler import Action
-from astra.utils import clean_image
-
-
-class CustomImageClass(Image):
-    """Enhanced image processing class with background subtraction and cleaning.
-
-    Extends the donuts Image class to provide sophisticated background
-    subtraction, median filtering, and banding correction for improved
-    star detection and shift measurements during guiding calibration.
-    """
-
-    def preconstruct_hook(self) -> None:
-        """
-        Apply image preprocessing before Donuts star detection.
-
-        Performs background subtraction, noise reduction, and systematic
-        correction to improve star detection reliability.
-        """
-        self.raw_image = clean_image(self.raw_image)
+from astra.utils import CustomImageClass
 
 
 class GuidingCalibrator:
