@@ -2113,7 +2113,8 @@ class Observatory:
             n_exposures_list = action_value["n"]
         else:
             exptime_list = [action_value["exptime"]]
-            if action_value.get("n"):
+
+            if action_value.get("n") is not None and action_value.get("n") >= 0:
                 n_exposures_list = [int(action_value["n"])]
             else:
                 n_exposures_list = [
