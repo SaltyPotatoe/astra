@@ -211,6 +211,9 @@ body.fe-modal-open {
 }
 .info-corner p {
     margin: 0;
+    white-space: nowrap;      /* Prevent wrapping */
+    overflow: hidden;         /* Clip if too long */
+    text-overflow: ellipsis;  /* Add ... if clipped */
 }
 @media (max-width: 640px) {
     .info-corner {

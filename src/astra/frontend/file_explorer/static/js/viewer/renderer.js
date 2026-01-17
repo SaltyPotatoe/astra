@@ -34,6 +34,7 @@ let mouseMoveAttached = false;
 let stateRef = null;
 let resizeDebounceTimer = null;
 let resizePending = false;
+let lastMouseEvent = null;
 
 let stretchSettings = {
     min: null,
@@ -417,6 +418,7 @@ function drawLineProfile(profileCtx, profileData, isHorizontal, offset) {
 }
 
 function imageInteractionHandler(event, width, height) {
+    lastMouseEvent = event;
     if (!rect) return;
     const x = Math.floor((event.clientX - rect.left) * scaleX);
     const y = Math.floor((event.clientY - rect.top) * scaleY);
@@ -497,24 +499,40 @@ function resizeImageAndProfiles() {
         }
         const roundedW = Math.round(displayW);
         const roundedH = Math.round(displayH);
-        canvas.style.width = `${roundedW}px`;
-        canvas.style.height = `${roundedH}px`;
-        // Disconnect observer to prevent resize loop when updating CSS variables
-        if (resizeObserver) resizeObserver.disconnect();
-        imageGridContainer.style.setProperty('--image-col-width', `${roundedW}px`);
-        // Reconnect observer after CSS update
-        if (resizeObserver) resizeObserver.observe(imageGridContainer);
+        
+        const currentW = canvas.style.width ? parseInt(canvas.style.width, 10) : 0;
+        const currentH = canvas.style.height ? parseInt(canvas.style.height, 10) : 0;
+
+        if (roundedW !== currentW || roundedH !== currentH) {
+            canvas.style.width = `${roundedW}px`;
+            canvas.style.height = `${roundedH}px`;
+            // Disconnect observer to prevent resize loop when updating CSS variables
+            if (resizeObserver) resizeObserver.disconnect();
+            imageGridContainer.style.setProperty('--image-col-width', `${roundedW}px`);
+            // Reconnect observer after CSS update
+            if (resizeObserver) resizeObserver.observe(imageGridContainer);
+        }
     }
     rect = canvas.getBoundingClientRect();
     scaleX = canvas.width / rect.width;
     scaleY = canvas.height / rect.height;
     // Profiles track displayed size exactly
-    xProfileCanvas.style.width = `${rect.width}px`;
-    xProfileCanvas.width = rect.width;
+    // Only clear canvas if size definitely changed to avoid flicker/clearing
+    if (xProfileCanvas.width !== rect.width) {
+        xProfileCanvas.width = rect.width;
+    }
     xProfileCanvas.style.height = `${Math.max(40, Math.round(rect.height * 0.18))}px`;
+
     yProfileCanvas.style.height = `${rect.height}px`;
-    yProfileCanvas.height = rect.height;
+    if (yProfileCanvas.height !== rect.height) {
+        yProfileCanvas.height = rect.height;
+    }
     yProfileCanvas.style.width = getComputedStyle(imageGridContainer).getPropertyValue('--profile-width');
+
+    // Restore profiles using the last known mouse position if available
+    if (lastMouseEvent) {
+        imageInteractionHandler(lastMouseEvent, imageWidth, imageHeight);
+    }
     return true;
 }
 
@@ -529,6 +547,9 @@ function computeProfileWidth(totalWidth) {
 
 function applyProfileWidthCSS(w) {
     if (!imageGridContainer) return;
+    const current = imageGridContainer.style.getPropertyValue('--profile-width');
+    if (current === `${w}px`) return;
+
     // Disconnect observer to prevent resize loop when updating CSS variables
     if (resizeObserver) resizeObserver.disconnect();
     imageGridContainer.style.setProperty('--profile-width', `${w}px`);
@@ -538,6 +559,11 @@ function applyProfileWidthCSS(w) {
 
 function updateProfileVisibility(profileWidth) {
     const hide = profileWidth === 0;
+    const currentDisplay = yProfileCanvas.style.display;
+    const targetDisplay = hide ? 'none' : 'block';
+    
+    if (currentDisplay === targetDisplay) return;
+
     if (hide) {
         yProfileCanvas.style.display = 'none';
         xProfileCanvas.style.display = 'none';
@@ -593,6 +619,10 @@ function setupZoom() {
                 ctx.scale(transform.k, transform.k);
                 ctx.drawImage(offscreenCanvas, 0, 0, imageWidth, imageHeight);
                 ctx.restore();
+
+                if (lastMouseEvent) {
+                    imageInteractionHandler(lastMouseEvent, imageWidth, imageHeight);
+                }
             });
         d3.select(canvas).call(zoomInstance);
     }
