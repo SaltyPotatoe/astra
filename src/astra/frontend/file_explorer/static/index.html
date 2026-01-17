@@ -41,9 +41,12 @@
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"></path>
                     </svg>
                 </button>
-                <button id="sort-btn" class="p-2 rounded bg-gray-600/20 hover:bg-gray-600/40 transition-colors text-sm flex items-center justify-center w-10 h-10" aria-label="Toggle sort order" title="Toggle sort order">
-                    <i class="bi bi-sort-up"></i>
-                </button>
+                <select id="sort-select" class="p-2 rounded bg-gray-600/20 hover:bg-gray-600/40 transition-colors text-sm text-slate-100 border border-gray-700/50 cursor-pointer" title="Sort by">
+                    <option value="date-desc">Date (Newest)</option>
+                    <option value="date-asc">Date (Oldest)</option>
+                    <option value="name-asc">Name (A-Z)</option>
+                    <option value="name-desc">Name (Z-A)</option>
+                </select>
                 <div class="flex-grow min-w-[140px]">
                     <input type="text" id="search" placeholder="Search..." 
                            class="w-full p-2 rounded bg-gray-600/20 text-slate-100 placeholder-gray-400 border border-gray-700/50">
@@ -72,7 +75,10 @@
                                     <i class="bi bi-chevron-right" aria-hidden="true"></i>
                                 </button>
                                 <button id="loadFullFitsButton" class="toolbar-icon-button" title="Load full FITS" aria-label="Load full FITS" type="button">
-                                    <i class="bi bi-cloud-arrow-down" aria-hidden="true"></i>
+                                    <i class="bi bi-grid-1x2" aria-hidden="true"></i>
+                                </button>
+                                <button id="downloadFitsButton" class="toolbar-icon-button" title="Download FITS file" aria-label="Download FITS file" type="button">
+                                    <i class="bi bi-download" aria-hidden="true"></i>
                                 </button>
                                 <div class="hdu-block">
                                     <div id="hduLabel" class="hdu-label">HDU</div>
@@ -258,16 +264,7 @@
             }
 
             currentPath = data.current_path;
-            // Persist the last browsed path so the explorer restores it on reload
-            try {
-                localStorage.setItem('astra_fe_last_path', currentPath || '');
-            } catch (e) {
-                // ignore storage errors (e.g., private mode)
-            }
-            // store raw files and compute ordered list according to current sort
             window.__fe_last_files = data.files || [];
-            window.__fe_last_files_ordered = (window.__fe_last_files || []).slice();
-            if (window.__fe_sort_mode === 'reverse') window.__fe_last_files_ordered.reverse();
 
             updateBreadcrumbs(data.breadcrumbs);
             renderFileList();
@@ -279,10 +276,30 @@
             }
         }
 
-        // sortMode: 'default' or 'reverse'
-        window.__fe_sort_mode = window.__fe_sort_mode || 'default';
+        // Initialize sort mode to date-desc (newest first)
+        window.__fe_sort_mode = window.__fe_sort_mode || 'date-desc';
+        
+        function applySorting(files, mode) {
+            const sorted = files.slice();
+            switch (mode) {
+                case 'date-desc': // Newest first
+                    sorted.sort((a, b) => (b.mtime || 0) - (a.mtime || 0));
+                    break;
+                case 'date-asc': // Oldest first
+                    sorted.sort((a, b) => (a.mtime || 0) - (b.mtime || 0));
+                    break;
+                case 'name-asc': // A-Z
+                    sorted.sort((a, b) => a.name.toLowerCase().localeCompare(b.name.toLowerCase()));
+                    break;
+                case 'name-desc': // Z-A
+                    sorted.sort((a, b) => b.name.toLowerCase().localeCompare(a.name.toLowerCase()));
+                    break;
+            }
+            return sorted;
+        }
+        
         function renderFileList() {
-            const files = (window.__fe_last_files_ordered || window.__fe_last_files || []).slice();
+            const files = applySorting(window.__fe_last_files || [], window.__fe_sort_mode);
             const fileList = document.getElementById('file-list');
             fileList.innerHTML = '';
 
@@ -312,28 +329,11 @@
             }
         }
 
-        // Sort button: toggle icon orientation
-        const sortBtn = document.getElementById('sort-btn');
-        sortBtn.addEventListener('click', function () {
-            window.__fe_sort_mode = window.__fe_sort_mode === 'default' ? 'reverse' : 'default';
-            // swap icon between up/down to indicate order
-            const icon = this.querySelector('i');
-            if (icon) {
-                if (window.__fe_sort_mode === 'reverse') {
-                    icon.classList.remove('bi-sort-up');
-                    icon.classList.add('bi-sort-down');
-                    this.title = 'Sort: reverse';
-                    this.setAttribute('aria-label', 'Sort: reverse');
-                } else {
-                    icon.classList.remove('bi-sort-down');
-                    icon.classList.add('bi-sort-up');
-                    this.title = 'Sort: default';
-                    this.setAttribute('aria-label', 'Sort: default');
-                }
-            }
-            // recompute ordered list and re-render
-            window.__fe_last_files_ordered = (window.__fe_last_files || []).slice();
-            if (window.__fe_sort_mode === 'reverse') window.__fe_last_files_ordered.reverse();
+        // Sort dropdown: handle sorting mode changes
+        const sortSelect = document.getElementById('sort-select');
+        sortSelect.value = window.__fe_sort_mode;
+        sortSelect.addEventListener('change', function () {
+            window.__fe_sort_mode = this.value;
             renderFileList();
         });
 
@@ -347,18 +347,18 @@
 
         // Previous/Next navigation for FITS modal
         function findIndexForPath(path) {
-            const list = window.__fe_last_files_ordered || window.__fe_last_files || [];
-            return list.findIndex(f => f.path === path);
+            const sortedList = applySorting(window.__fe_last_files || [], window.__fe_sort_mode);
+            return sortedList.findIndex(f => f.path === path);
         }
 
         function navigateToOffset(offset) {
             const current = window.__fe_current_file || '';
-            const idx = findIndexForPath(current);
+            const sortedList = applySorting(window.__fe_last_files || [], window.__fe_sort_mode);
+            const idx = sortedList.findIndex(f => f.path === current);
             if (idx === -1) return;
-            const list = window.__fe_last_files_ordered || window.__fe_last_files || [];
             const nextIdx = idx + offset;
-            if (nextIdx < 0 || nextIdx >= list.length) return;
-            const target = list[nextIdx];
+            if (nextIdx < 0 || nextIdx >= sortedList.length) return;
+            const target = sortedList[nextIdx];
             if (target && !target.is_dir) {
                 openFitsModal(target.path);
             }
@@ -464,6 +464,18 @@
             }
         });
 
+        // Download FITS file button handler
+        document.getElementById('downloadFitsButton').addEventListener('click', function() {
+            if (!window.__fe_current_file) return;
+            const downloadUrl = explorerUrl(`download/${encodePathForQuery(window.__fe_current_file)}`);
+            const link = document.createElement('a');
+            link.href = downloadUrl;
+            link.download = window.__fe_current_file.split('/').pop();
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        });
+
 
         document.addEventListener('keydown', function(event) {
             const modal = document.getElementById('fits-modal');
@@ -494,15 +506,7 @@
         });
 
 
-        // Restore last browsed path (persisted across reloads) when available.
-        (function restoreLastPath() {
-            try {
-                const saved = localStorage.getItem('astra_fe_last_path');
-                fetchFiles(saved || '');
-            } catch (e) {
-                fetchFiles('');
-            }
-        })();
+        fetchFiles('');
     </script>
 </body>
 </html>

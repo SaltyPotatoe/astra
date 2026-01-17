@@ -51,7 +51,7 @@ export function setupInteractions({
         if (mode === ViewerMode.PREVIEW_READY) {
             loadFullFitsButton.disabled = false;
             // icon-only button; title explains action
-            loadFullFitsButton.innerHTML = '<i class="bi bi-cloud-arrow-down" aria-hidden="true"></i>';
+            loadFullFitsButton.innerHTML = '<i class="bi bi-grid-1x2" aria-hidden="true"></i>';
             loadFullFitsButton.title = 'Load full FITS file';
         } else if (mode === ViewerMode.FULL_LOADING) {
             loadFullFitsButton.disabled = true;
@@ -415,13 +415,13 @@ function renderHeaderTable(tableEl, data = {}) {
 
     Object.entries(data).forEach(([key, value]) => {
         const row = document.createElement('tr');
-    const keyCell = document.createElement('td');
-    keyCell.textContent = key;
-    keyCell.classList.add('key-col');
+        const keyCell = document.createElement('td');
+        keyCell.textContent = key;
+        keyCell.classList.add('key-col');
         const valueCell = document.createElement('td');
-    valueCell.classList.add('value-col');
+        valueCell.classList.add('value-col');
         const commentCell = document.createElement('td');
-    commentCell.classList.add('comment-col');
+        commentCell.classList.add('comment-col');
         if (value && typeof value === 'object' && ('value' in value || 'comment' in value)) {
             valueCell.textContent = value.value || '';
             commentCell.textContent = value.comment || '';

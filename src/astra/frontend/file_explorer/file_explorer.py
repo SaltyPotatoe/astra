@@ -19,7 +19,7 @@ ALLOWED_EXTENSIONS = {
 
 # Maximum number of items to return from a single directory listing. Prevents
 # expensive scans that could be used for DoS or cause long blocking I/O.
-LIST_MAX_ITEMS = 10_000
+LIST_MAX_ITEMS = 1_000_000
 
 # Static files (UI assets) directory used by both the app factory and router.
 STATIC_DIR = Path(__file__).parent / "static"
@@ -191,7 +191,7 @@ def _list_files_for_path(fits_dir: Path, path: str = ""):
 
     iterator = (item for item in current_path.iterdir() if should_include(item))
     items = []
-    for idx, item in enumerate(sorted(iterator, key=sorting_key)):
+    for idx, item in enumerate(iterator):
         if idx >= LIST_MAX_ITEMS:
             logger.warning(
                 "Directory listing for %s exceeded LIST_MAX_ITEMS (%s)",
@@ -287,12 +287,29 @@ def create_router(fits_dir: Path) -> APIRouter:
                     "name": item.name,
                     "is_dir": item.is_dir(),
                     "path": str(item.relative_to(fits_dir)),
+                    "mtime": item.stat().st_mtime,
                 }
                 for item in items
             ],
             "current_path": path,
             "breadcrumbs": path.split("/") if path else [],
         }
+
+    @router.get("/download/{filename:path}")
+    def download(filename: str):
+        logger.info("Download request for %s", filename)
+        file_path = _safe_file_path(filename, fits_dir)
+
+        from fastapi.responses import FileResponse
+
+        # Get just the filename for the download
+        download_filename = file_path.name
+
+        return FileResponse(
+            path=str(file_path),
+            filename=download_filename,
+            media_type="application/octet-stream",
+        )
 
     @router.get("/preview/{filename:path}")
     def preview(filename: str, hdu: Optional[int] = None, max_dim: int = 512):
