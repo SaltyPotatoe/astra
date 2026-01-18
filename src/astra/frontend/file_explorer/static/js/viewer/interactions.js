@@ -389,6 +389,15 @@ function normalizeHeaderValue(value) {
 
 function renderHeaderTable(tableEl, data = {}) {
     if (!tableEl) return;
+
+    // Prevent scroll jump: lock height and capture scroll position
+    const scrollParent = tableEl.closest('[role="dialog"]') || document.documentElement;
+    const savedScrollTop = scrollParent.scrollTop;
+    const prevHeight = tableEl.offsetHeight;
+    if (prevHeight > 0) {
+        tableEl.style.minHeight = `${prevHeight}px`;
+    }
+
     tableEl.innerHTML = '';
     const headerRow = document.createElement('tr');
     ['Key', 'Value', 'Comment'].forEach((label) => {
@@ -470,6 +479,14 @@ function renderHeaderTable(tableEl, data = {}) {
             // non-fatal
         }
     });
+
+    // Restore layout
+    if (prevHeight > 0) {
+        tableEl.style.minHeight = '';
+        if (scrollParent && savedScrollTop > 0) {
+            scrollParent.scrollTop = savedScrollTop;
+        }
+    }
 }
 
 function updateFilePathBanner(filePath) {
