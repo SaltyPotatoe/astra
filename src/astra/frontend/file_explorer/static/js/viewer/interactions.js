@@ -69,7 +69,8 @@ export function setupInteractions({
     });
 
     if (loadFullFitsButton) {
-        loadFullFitsButton.addEventListener('click', () => {
+        loadFullFitsButton.addEventListener('click', (e) => {
+            if (e && e.stopPropagation) e.stopPropagation();
             const { filePath, hdu } = state.getFile();
             if (!filePath) return;
             loadFullFitsButton.disabled = true;

@@ -342,7 +342,8 @@
             const prevBtn = document.getElementById('prev-file-btn');
             const nextBtn = document.getElementById('next-file-btn');
             prevBtn.disabled = idx <= 0;
-            nextBtn.disabled = idx === -1 || idx >= (window.__fe_last_files_ordered || []).length - 1;
+            // Use __fe_last_files length as sorting preserves array length
+            nextBtn.disabled = idx === -1 || idx >= (window.__fe_last_files || []).length - 1;
         }
 
         // Previous/Next navigation for FITS modal

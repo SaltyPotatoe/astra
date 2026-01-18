@@ -432,7 +432,14 @@ function imageInteractionHandler(event, width, height) {
     const left = Math.floor((-currentTransform.x * scaleX) / currentTransform.k);
     const top = Math.floor((-currentTransform.y * scaleY) / currentTransform.k);
 
-    if (transformedX < 0 || transformedX >= width || transformedY < 0 || transformedY >= height) {
+    if (
+        !Number.isFinite(transformedX) ||
+        !Number.isFinite(transformedY) ||
+        transformedX < 0 ||
+        transformedX >= width ||
+        transformedY < 0 ||
+        transformedY >= height
+    ) {
         return;
     }
 
