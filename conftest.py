@@ -5,10 +5,10 @@ import signal
 import subprocess
 import time
 from pathlib import Path
+from unittest.mock import MagicMock, create_autospec
 
 import pytest
 import requests
-from unittest.mock import create_autospec, MagicMock
 
 from astra.config import Config, ObservatoryConfig
 from astra.logger import ObservatoryLogger
