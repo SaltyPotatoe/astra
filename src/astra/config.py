@@ -17,7 +17,6 @@ from typing import Any, Dict, Optional, Union
 
 import pandas as pd
 import yaml
-from platformdirs import user_config_dir
 from ruamel.yaml import YAML
 
 
@@ -62,9 +61,7 @@ class Config:
     """
 
     """The path to the configuration YAML file."""
-    CONFIG_PATH = (
-        Path(user_config_dir("astra", ensure_exists=True)) / "astra_config.yml"
-    )
+    CONFIG_PATH = Path.home() / ".astra" / "astra_config.yml"
 
     """The path to the directory containing template files."""
     TEMPLATE_DIR = Path(__file__).parent / "config" / "templates"
@@ -520,11 +517,11 @@ class _ConfigInitialiser:
             return ""
 
         # Check common locations for existing database
-        common_paths = [
-            Path.home() / "gaia_tmass_16_jm_cut.db",
-            Path.home() / "Downloads" / "gaia_tmass_16_jm_cut.db",
-            Path.cwd() / "gaia_tmass_16_jm_cut.db",
-        ]
+        search_dirs = [Path.home(), Path.home() / "Downloads", Path.cwd()]
+        common_paths = []
+        for folder in search_dirs:
+            if folder.exists():
+                common_paths.extend(folder.glob("gaia_tmass_*_jm_cut.db"))
 
         for path in common_paths:
             if path.exists():
@@ -532,7 +529,7 @@ class _ConfigInitialiser:
                     f"Found existing Gaia database at: {path}"
                 )
                 use_existing = (
-                    _ConfigInitialiser._cinput("Use this database? [Y/n]: ")
+                    _ConfigInitialiser._cinput("Use this database? [y/n]: ")
                     .strip()
                     .lower()
                 )

@@ -47,8 +47,7 @@ dependencies = [
   "fastapi[standard]",
   "pyyaml",
   "ruamel.yaml",
-  "cabaret",
-  "platformdirs"
+  "cabaret"
 ]
 description = "Automated Survey observaTory Robotised with Alpaca"
 license = {text = "GPL-3.0"}
