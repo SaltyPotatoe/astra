@@ -276,7 +276,7 @@ app = FastAPI(lifespan=lifespan)
 try:
     include_file_explorer(
         app,
-        fits_dir=Config().paths.images,
+        fits_dir=lambda: Config().paths.images,
         prefix="/fits_explorer",
         static_url="/fits_explorer/static",
         fits_url="/fits",

@@ -1,7 +1,7 @@
 import io
 import logging
 from pathlib import Path
-from typing import Optional, Tuple
+from typing import Callable, Optional, Tuple, Union
 
 from fastapi import APIRouter, FastAPI, HTTPException
 from fastapi.responses import JSONResponse, StreamingResponse
@@ -23,6 +23,19 @@ LIST_MAX_ITEMS = 1_000_000
 
 # Static files (UI assets) directory used by both the app factory and router.
 STATIC_DIR = Path(__file__).parent / "static"
+
+
+class LazyStaticFiles:
+    def __init__(self, directory_loader: Callable[[], Path], **kwargs):
+        self.directory_loader = directory_loader
+        self.kwargs = kwargs
+        self.app = None
+
+    async def __call__(self, scope, receive, send):
+        if self.app is None:
+            directory = self.directory_loader()
+            self.app = StaticFiles(directory=str(directory), **self.kwargs)
+        await self.app(scope, receive, send)
 
 
 def _resolve_filename(name: str, fits_dir: Path):
@@ -209,7 +222,9 @@ def _list_files_for_path(fits_dir: Path, path: str = ""):
     return items, None
 
 
-def create_app(fits_dir: Path, *, enable_gzip: bool = False, **kwargs) -> FastAPI:
+def create_app(
+    fits_dir: Union[Path, Callable[[], Path]], *, enable_gzip: bool = False, **kwargs
+) -> FastAPI:
     """Standalone FastAPI application that serves the file explorer.
 
     This is mainly for local testing (`python file_explorer.py --fits-dir=...`). The
@@ -223,7 +238,7 @@ def create_app(fits_dir: Path, *, enable_gzip: bool = False, **kwargs) -> FastAP
     return app
 
 
-def create_router(fits_dir: Path) -> APIRouter:
+def create_router(fits_dir: Union[Path, Callable[[], Path]]) -> APIRouter:
     """Return a router exposing the FITS explorer endpoints for ``fits_dir``.
 
     The router is the single source of truth for all HTTP behaviour so it can be
@@ -231,6 +246,9 @@ def create_router(fits_dir: Path) -> APIRouter:
     """
 
     router = APIRouter()
+
+    def get_fits_dir() -> Path:
+        return fits_dir() if callable(fits_dir) else fits_dir
 
     from fastapi import Request
     from fastapi.responses import HTMLResponse
@@ -275,7 +293,7 @@ def create_router(fits_dir: Path) -> APIRouter:
 
     @router.get("/list/")
     async def list_files(path: str = ""):
-        items, err = _list_files_for_path(fits_dir, path)
+        items, err = _list_files_for_path(get_fits_dir(), path)
         if err:
             return err
         if items is None:
@@ -286,7 +304,7 @@ def create_router(fits_dir: Path) -> APIRouter:
                 {
                     "name": item.name,
                     "is_dir": item.is_dir(),
-                    "path": str(item.relative_to(fits_dir)),
+                    "path": str(item.relative_to(get_fits_dir())),
                     "mtime": item.stat().st_mtime,
                 }
                 for item in items
@@ -298,7 +316,7 @@ def create_router(fits_dir: Path) -> APIRouter:
     @router.get("/download/{filename:path}")
     def download(filename: str):
         logger.info("Download request for %s", filename)
-        file_path = _safe_file_path(filename, fits_dir)
+        file_path = _safe_file_path(filename, get_fits_dir())
 
         from fastapi.responses import FileResponse
 
@@ -316,7 +334,7 @@ def create_router(fits_dir: Path) -> APIRouter:
         logger.info(
             "Preview request for %s (hdu=%s, max_dim=%s)", filename, hdu, max_dim
         )
-        file_path = _safe_file_path(filename, fits_dir)
+        file_path = _safe_file_path(filename, get_fits_dir())
 
         try:
             from astropy.io import fits
@@ -351,7 +369,7 @@ def create_router(fits_dir: Path) -> APIRouter:
     @router.get("/hdu_list/{filename:path}")
     def hdu_list(filename: str):
         logger.info("HDU list request for %s", filename)
-        file_path = _safe_file_path(filename, fits_dir)
+        file_path = _safe_file_path(filename, get_fits_dir())
 
         try:
             from astropy.io import fits
@@ -404,7 +422,7 @@ def create_router(fits_dir: Path) -> APIRouter:
         logger.info(
             f"Header request received for filename param: {filename!r}, hdu={hdu}"
         )
-        file_path = _safe_file_path(filename, fits_dir)
+        file_path = _safe_file_path(filename, get_fits_dir())
 
         try:
             from astropy.io import fits
@@ -451,7 +469,7 @@ def create_router(fits_dir: Path) -> APIRouter:
 
 def include_file_explorer(
     app: FastAPI,
-    fits_dir: Path,
+    fits_dir: Union[Path, Callable[[], Path]],
     *,
     prefix: str = "/fits_explorer",
     static_url: Optional[str] = None,
@@ -492,11 +510,19 @@ def include_file_explorer(
     if fits_url:
         if not fits_url.startswith("/"):
             raise ValueError("fits_url must start with '/' if provided")
-        app.mount(
-            fits_url,
-            StaticFiles(directory=str(fits_dir), html=False),
-            name=f"file_explorer_fits_{mount_name_suffix}",
-        )
+
+        if callable(fits_dir):
+            app.mount(
+                fits_url,
+                LazyStaticFiles(directory_loader=fits_dir, html=False),
+                name=f"file_explorer_fits_{mount_name_suffix}",
+            )
+        else:
+            app.mount(
+                fits_url,
+                StaticFiles(directory=str(fits_dir), html=False),
+                name=f"file_explorer_fits_{mount_name_suffix}",
+            )
 
     if enable_gzip:
         try:
