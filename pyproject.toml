@@ -40,7 +40,6 @@ dependencies = [
   "alpyca @ git+https://github.com/ppp-one/alpyca.git",
   "psutil",
   "donuts",
-  "httpx",
   "jinja2",
   "matplotlib",
   "pandas",
