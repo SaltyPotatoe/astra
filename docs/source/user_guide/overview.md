@@ -5,12 +5,11 @@ It covers the main topics required to get started:
 
 - **[Observatory Configuration](observatory_configuration)**:
 
-  Configure your observatory's hardware and safety limits using a YAML syntax.
+  Configure your observatory's hardware and safety limits.
 
 - **[FITS Header Configuration](fits_header_configuration)**:
 
-  Manage FITS headers using a CSV mapping that links device methods to FITS
-  keywords.
+  Manage FITS headers, linking device methods to FIT keywords.
 
 - **[Scheduling](scheduling)**:
 

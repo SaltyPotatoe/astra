@@ -25,36 +25,9 @@ Following [Quickstart](../quickstart), `astra` has a few optional startup option
 
 In most cases you will run `astra` without any options.
 
-````{dropdown} Environment Activation
-:icon: info
-:color: info
-
-Always remember to activate your virtual environment before running astra.
-
-Alternatively, you can run
-~~~bash
-uv run astra
-~~~
-in the directory where astra is installed, which will automatically use `.venv`.
-
-
-```{dropdown} Automatic Environment Detection
-:icon: info
-:color: info
-
-If installed, you can also consider using `direnv` to auto-activate the python
-environment in the directory where *Astra* is installed using
-~~~bash
-echo 'source .venv/bin/activate' > .envrc
-direnv allow
-~~~
-```
-
-````
-
 <!-- Logic, best practices, safety no. 1 -->
 
-When Astra starts, it goes through three main phases: initialization, device connection, and web interface.
+When _Astra_ starts, it goes through three main phases: initialization, device connection, and web interface.
 
 1. **Initialization**
    - **Database**: Creates (if it doesn't exist) a local SQLite database to store polled device data and logs.
@@ -72,14 +45,14 @@ When Astra starts, it goes through three main phases: initialization, device con
 
 ## Web Interface
 
-If you're interested in jumping straight into Astra, the web interface is where you'll spend most of your time. Otherwise, please continue reading for more context on how Astra operates.
+If you're interested in jumping straight into _Astra_, the web interface is where you'll spend most of your time. Otherwise, please continue reading for more context on how _Astra_ operates.
 
 ```{figure} ../_static/ui-robotic-switch-screenshot.jpg
 :width: 80%
 :align: center
-:alt: Top portion of Astra's web interface
+:alt: Top portion of _Astra_'s web interface
 
-Top portion of Astra's web interface
+Top portion of _Astra_'s web interface
 ```
 
 _Astra_'s web interface is built with FastAPI and jinja2, with its API documentation available at [http://localhost:8000/docs](http://localhost:8000/docs) after startup.
@@ -99,33 +72,33 @@ Toggling the robotic switch **on** will begin any loaded schedule.
 
 _Astra_'s web interface is divided into four main sections:
 
-- **Summary**: Displays real-time status of connected devices, including key properties and error states.
+- **Summary**: Displays real-time status of connected devices, including key properties and error states. Latest FITS images, and optionally live webcam feed + all-sky camera, are also shown here.
 - **Logs**: Provides access to system and device logs for monitoring and troubleshooting. It also displays the currently loaded schedule and its status.
 - **Weather**: Shows current weather conditions, graphs, and the respective safety limits set in the observatory configuration.
-- **Controls**: Some basic observatory controls, such as closing the observatory.
+- **Controls**: Sky map showing current telescope position. Some basic observatory controls, such as closing the observatory.
 
 ## Watchdog
 
 The watchdog serves as the backbone of _Astra_'s operational safety, where it continously monitors:
 
-- **SafetyMonitor and ObservingConditions devices**: If weather conditions are unsafe, the observatory will close
-- **Device Health**: Communication status and responsiveness of all connected devices
-- **Error Management**: System errors and device failures, the observatory will close if critical errors are detected
-- **Schedule Coordination**: If robotic switch is enabled and a valid schedule exists, the scheduler will be started
-- **Health Reporting**: Updates a heartbeat dictionary of system status and polled values from devices for external heartbeat monitoring
-- **Logs Backup**: Performs daily backups of logs
+- **SafetyMonitor and ObservingConditions devices**: If weather conditions are unsafe, the observatory will close.
+- **Device Health**: Communication status and responsiveness of all connected devices.
+- **Error Management**: System errors and device failures, the observatory will close if critical errors are detected.
+- **Schedule Coordination**: If robotic switch is enabled and a valid schedule exists, the scheduler will be initiated.
+- **Health Reporting**: Updates a heartbeat dictionary of system status and polled values from devices to permit external heartbeat monitoring via _Astra_'s API.
+- **Logs Backup**: Performs daily backups of logs into CSV files of the past 24 hours, purges data older than 3 days from the database to manage size.
 
 Once the watchdog is running, enabling the robotic switch will start the scheduler if a valid schedule is loaded. The scheduler will then execute actions based on the schedule and current conditions.
 
 ## Weather Safety
 
-**Astra** continuously monitors weather conditions using the SafetyMonitor device and the internal safety monitor using the parameters from observatory configuration.
+_Astra_ continuously monitors weather conditions using the SafetyMonitor device and the internal safety monitor using the parameters from observatory configuration.
 The scheduler handles different action types based on weather dependency:
 
 - **Weather-dependent actions** (require safe conditions): `open`, `object`, `autofocus`, `calibrate_guiding`, `pointing_model`
 - **Weather-independent actions** (can run in unsafe weather): `calibration`, `close`, `cool_camera`, `complete_headers`
 
-If weather becomes unsafe during execution, weather-dependent actions will stop, while weather-independent actions continue. In either case, the observatory will close safely if needed. The scheduler will also attempt to resume operations once conditions are safe again.
+If weather becomes unsafe during execution, weather-dependent actions will stop, while weather-independent actions continue. In either case, the observatory will close safely if needed. The scheduler will also attempt to resume operations once conditions are safe again (determined by the `max_safe_duration` in the [observatory configuration](observatory_configuration)) and within the schedule's time frame.
 
 ## Core Logic
 
@@ -147,7 +120,7 @@ The watchdog reads from SQLite database as part of the weather safety logic, mon
 
 Pipes are used for direct communication between the main process and device processes, allowing for efficient command execution and status updates.
 
-_Astra_ uses several open-source libraries for its core logic, namely _astropy, alpyca, sqlite3worker, fastapi, pandas, twirl, photutils, donuts, psutil, pyyaml_, and _astrafocus_. Please refer to the source code for further implementation details.
+_Astra_ uses several open-source libraries for its core logic, namely _alpyca, astrafocus, astropy, cabaret, donuts, fastapi, jinja2, matplotlib, pandas, photutils, psutil, pyyaml, ruamel, yaml, scipy, sqlite3worker_, and _twirl_. Please refer to the source code for further implementation details.
 
 ## Troubleshooting
 

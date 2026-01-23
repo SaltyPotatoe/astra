@@ -1,6 +1,6 @@
 # Scheduling Syntax
 
-Astra uses a flexible scheduling system to automate observatory operations. Schedules are defined using JSONL files (JSON Lines format), where each line represents a scheduled action with these fields:
+Astra uses a scheduling system to automate observatory operations. Schedules are defined using JSONL files (JSON Lines format), where each line represents a scheduled action with these fields:
 
 - `device_name`: Name of the camera device (the primary instrument that coordinates all operations)
 - `action_type`: Type of action to perform
@@ -44,7 +44,7 @@ Astra's JSONL files support comments using lines that start with `//`:
 
 Place your schedule file in the observatory schedules directory with a `.jsonl` extension. For example:
 
-- `~/Documents/Astra/schedules/observatory_name.jsonl`
+- `~/Documents/Astra/schedules/<observatory_name>.jsonl`
 
 Astra will automatically detect and load the JSONL schedule file, with the specified name pattern, if modified.
 

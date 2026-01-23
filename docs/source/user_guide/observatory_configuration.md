@@ -1,6 +1,6 @@
 # Observatory Configuration
 
-_Astra_ requires a configuration file in YAML format for each observatory you want to operate. This file defines all devices, their settings, and how they interact with each other.
+_Astra_ requires an observatory configuration file in YAML format. This file defines all devices, their settings, safety limits, and how they interact with each other.
 
 Before setting up your observatory, you'll need to configure two main components:
 
@@ -121,13 +121,13 @@ Safety system monitoring parameters:
 
 Optional observatory-wide settings:
 
+- `backup_time`: UTC time of day to perform automatic backups of polled data and logs (string, format: "HH:MM")
 - `Webcam`: Webcam feed configuration. The URL is embedded in an iframe element in the frontend. Can be:
   - Single URL string for one webcam (e.g., `Webcam: http://localhost:8888/inside`)
   - Array of objects for multiple webcams, each with `name` and `url` properties
-  - Supports HLS streams (e.g., [mediamtx](https://github.com/bluenviron/mediamtx)) or any iframe-compatible video source
+  - Any iframe-compatible video source (e.g., [mediamtx](https://github.com/bluenviron/mediamtx))
 - `AllSky`: All-sky camera configuration. Images are fetched via `/api/allsky/latest` endpoint and automatically refreshed every 60 seconds. Can be:
   - Single path string for one camera (e.g., `AllSky: /path/to/allsky.jpg`)
   - Array of objects for multiple cameras, each with `name` and `path` properties
   - Supports JPEG and PNG formats
-- `backup_time`: UTC time of day to perform automatic backups of polled data and logs (string, format: "HH:MM")
 - `filename_templates`: Customize how FITS files are named and organized (dict). See {py:mod}`astra.filename_templates` for more details.

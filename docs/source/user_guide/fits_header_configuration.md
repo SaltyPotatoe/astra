@@ -13,8 +13,8 @@ The CSV configuration file defines how FITS headers are constructed:
 - `header`: FITS header keyword
 - `dtype`: Data type (string, integer, float, boolean)
 - `fixed`: Whether the value is set at the beginning of an imaging sequence (`true`) or filled later from polling (`false`)
-- `device_type`: Source device type or data source
-- `device_command`: ASCOM command or data source identifier
+- `device_type`: Source ([ASCOM Alpaca device](https://ascom-standards.org/alpyca/alpacaclasses.html), `static` for unchanging values, `astra` for _Astra_ calculated/derived values, `astropy_default` for standard Astropy headers)
+- `device_command`: ASCOM device property, a static value, or empty.
 - `comment`: Description of the header keyword
 
 ## Example Configuration
@@ -31,32 +31,29 @@ _Astra_ creates FITS headers in two stages to ensure complete and accurate metad
 
 ### 1. Base Headers (at the beginning of an imaging sequence)
 
-When an imaging sequence begins, _Astra_ immediately creates an initial FITS header containing (if `fixed=true` in the configuration):
+When an imaging sequence begins, _Astra_ immediately creates an initial FITS header containing (if `fixed=true` in the FITS configuration), such as:
 
-- **Observatory information:** Site name, coordinates, altitude
-- **Optical system:** Aperture diameter, area, focal length
-- **Instrument details:** Camera settings, filter name, pixel scale
+- **Observatory information:** Site name, coordinates
+- **Telescope properties:** Aperture diameter, area, focal length
 - **Observation metadata:** Object name, exposure time, image type placeholders
 - **Software information:** _Astra_ version number
-- **Fixed device values:** Properties marked as `fixed=True` in the configuration
 
 `IMAGETYP` changes dynamically based on the imaging sequence (e.g., 'Light Frame', 'Dark Frame', 'Bias Frame', 'Flat Frame').
-
-`EXPTIME` reflects the exposure duration for each image.
 
 ### 2. Final Headers (after exposure)
 
 After an imaging sequence, _Astra_ completes any missing header values:
 
 - Identifies images with incomplete headers
-- Retrieves device polling data from ±10 seconds around each exposure time (stored in a local sqlite database)
-- Interpolates device readings (temperature, pointing, focus position, etc.) to match exposure timestamps
+- Retrieves device polling data from ±10 seconds around each exposure time (stored in a local SQLite database)
+- Interpolates device readings (e.g. ambient temperature, focus position, etc.) to match exposure timestamps
 - Updates FITS files in place while preserving original header structure
 - Adds calculated values such as:
   - Various time scales and reference frames
   - Derived parameters like airmass
+  - Checksum and datasum values
 
-This two-stage approach ensures headers contain accurate, time-synchronized metadata, while minimizing time loss between exposures.
+This two-stage approach ensures headers contain accurate, time-synchronized metadata, while minimising time loss between exposures.
 
 ## Customizing FITS Headers
 
