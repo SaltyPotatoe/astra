@@ -227,12 +227,43 @@ class Schedule(list[Action]):
         elif schedule_path.suffix == ".jsonl":
             data = []
             with open(schedule_path, "r") as f:
-                for line in f:
-                    line = line.strip()
-                    if not line or line.startswith("//"):
-                        continue
-                    obj = json.loads(line)
-                    data.append(obj)
+                # 1. Read the file line by line to filter out comments safely
+                #    We strip whitespace to check for empty lines or comments
+                valid_lines = [
+                    line
+                    for line in f
+                    if line.strip() and not line.strip().startswith("//")
+                ]
+
+                # 2. Join the valid lines into one massive string
+                full_text = "".join(valid_lines)
+
+                # 3. decode the objects one by one
+                decoder = json.JSONDecoder()
+                pos = 0
+
+                while pos < len(full_text):
+                    # Skip any whitespace/newlines between objects
+                    while pos < len(full_text) and full_text[pos].isspace():
+                        pos += 1
+
+                    if pos >= len(full_text):
+                        break
+
+                    # raw_decode parses one valid JSON object and returns:
+                    # obj: the parsed dictionary
+                    # end_pos: the index in the string where this object ended
+                    try:
+                        obj, end_pos = decoder.raw_decode(full_text, pos)
+                        data.append(obj)
+                        pos = end_pos
+                    except json.JSONDecodeError:
+                        # Handle cases where the file might end abruptly or have garbage
+                        raise ValueError(
+                            f"Parsing error or end of data at position {pos}"
+                        )
+
+            # Create the DataFrame
             schedule = pd.DataFrame(data)
         else:
             raise ValueError(f"Unsupported file format: {schedule_path.suffix}")

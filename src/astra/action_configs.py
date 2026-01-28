@@ -116,7 +116,9 @@ class BaseActionConfig:
             if err:
                 type_errors.append(err)
         if missing:
-            raise ValueError(f"Missing required fields: {missing}")
+            raise ValueError(
+                f"Missing required fields: {missing} in {self.__class__.__name__}"
+            )
         if type_errors:
             raise TypeError(f"Type errors in fields: {type_errors}")
 
@@ -556,7 +558,9 @@ class ObjectActionConfig(BaseActionConfig):
             if f.metadata.get("required") and getattr(self, f.name) is None:
                 missing.append(f.name)
         if missing:
-            raise ValueError(f"Missing required fields: {missing}")
+            raise ValueError(
+                f"Missing required fields: {missing} in {self.__class__.__name__}"
+            )
 
         # Coordinate system validation
         has_radec = self.ra is not None or self.dec is not None
@@ -731,7 +735,9 @@ class CalibrationActionConfig(BaseActionConfig):
             ):
                 missing.append(f.name)
         if missing:
-            raise ValueError(f"Missing required fields: {missing}")
+            raise ValueError(
+                f"Missing required fields: {missing} in {self.__class__.__name__}"
+            )
 
         # ensure exptime and n have the same length
         if len(self.exptime) != len(self.n):
@@ -794,7 +800,9 @@ class FlatsActionConfig(BaseActionConfig):
             ):
                 missing.append(f.name)
         if missing:
-            raise ValueError(f"Missing required fields: {missing}")
+            raise ValueError(
+                f"Missing required fields: {missing} in {self.__class__.__name__}"
+            )
 
         # ensure filter and n have the same length
         if len(self.filter) != len(self.n):

@@ -276,18 +276,7 @@
         let originalScheduleData = [];
 
         // Action value templates
-        const actionValueTemplates = {
-            'open': {},
-            'close': {},
-            'flats': { "filter": [""], "n": [] },
-            'object': { "object": "", "filter": "", "ra": 0, "dec": 0, "exptime": 0, "guiding": true, "pointing": true },
-            'calibration': { "exptime": [0, 10, 15, 30, 60, 120], "n": [10, 10, 10, 10, 10, 10] },
-            'pointing_model': {},
-            'autofocus': {},
-            'calibrate_guiding': {},
-            'cool_camera': {},
-            'complete_headers': {}
-        };
+        const actionValueTemplates = {{ schedule_templates | safe }};
 
         // Color mapping for action types
         const actionColors = {
@@ -781,34 +770,32 @@
         }        // Load initial schedule data
         function loadSchedule() {
             try {
-                const scheduleJson = {{ schedule | tojson
-            }};
-        console.log("Raw schedule data:", scheduleJson);
+                // Jinja converts the Python list of dicts -> JS Array of Objects
+                // No quotes, no parsing, no splitting.
+                const scheduleDataRaw = {{ schedule | tojson }};
+                
+                console.log("Raw schedule data:", scheduleDataRaw);
 
-        if (scheduleJson) {
-            const lines = scheduleJson.trim().split('\n').filter(line => line.trim());
-            scheduleData = lines.map(line => JSON.parse(line));
-        } else {
-            scheduleData = [];
-        }
+                // Ensure it is an array (handle null/undefined cases)
+                scheduleData = Array.isArray(scheduleDataRaw) ? scheduleDataRaw : [];
 
-        // Store original data for comparison
-        originalScheduleData = JSON.parse(JSON.stringify(scheduleData));
-        hasUnsavedChanges = false;
-        updateSaveStatus();
+                // Store original data for comparison (Deep copy)
+                originalScheduleData = JSON.parse(JSON.stringify(scheduleData));
+                hasUnsavedChanges = false;
+                updateSaveStatus();
 
-        renderTable();
-        renderChart();
+                renderTable();
+                renderChart();
             } catch (error) {
-            console.error("Error loading schedule data:", error);
-            showStatus('Error loading schedule: ' + error.message, 'error');
-            scheduleData = [];
-            originalScheduleData = [];
-            hasUnsavedChanges = false;
-            updateSaveStatus();
-            renderTable();
-            renderChart();
-        }
+                console.error("Error loading schedule data:", error);
+                showStatus('Error loading schedule: ' + error.message, 'error');
+                scheduleData = [];
+                originalScheduleData = [];
+                hasUnsavedChanges = false;
+                updateSaveStatus();
+                renderTable();
+                renderChart();
+            }
         }
 
         // Set field to current UTC time

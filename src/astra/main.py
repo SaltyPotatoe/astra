@@ -22,6 +22,7 @@ import mimetypes
 import sqlite3
 import time
 from contextlib import asynccontextmanager
+from dataclasses import MISSING, fields
 from datetime import UTC
 from io import BytesIO
 from pathlib import Path
@@ -44,6 +45,7 @@ from fastapi.templating import Jinja2Templates
 from PIL import Image
 
 from astra import Config, __version__
+from astra.action_configs import ACTION_CONFIGS
 from astra.frontend.file_explorer.file_explorer import include_file_explorer
 from astra.image_handler import HeaderManager
 from astra.logger import ConsoleStreamHandler, FileHandler
@@ -81,6 +83,7 @@ TWILIGHT_CACHE_TIME = None
 # Celestial data cache: stores celestial body positions for sky projection
 CELESTIAL_CACHE = None
 CELESTIAL_CACHE_TIME = None
+SCHEDULE_TEMPLATES = {}
 
 # Polling data cache: stores { (device_type, day): (timestamp, result) }
 POLLING_CACHE = {}
@@ -202,6 +205,27 @@ def format_time(ftime: datetime.datetime) -> str | None:
         return None
 
 
+def schedule_template_loader() -> dict:
+    output = {}
+
+    for key, cls in ACTION_CONFIGS.items():
+        field_data = {}
+        for f in fields(cls):
+            if not f.init or f.name.startswith("_"):
+                continue
+
+            # Handle cases where there is no default value (MISSING)
+            default_val = f.default
+            if default_val is MISSING:
+                default_val = None  # or some other placeholder
+
+            field_data[f.name] = default_val
+
+        output[key] = field_data
+
+    return output
+
+
 def convert_fits_to_preview(fits_file: str) -> tuple[bytes, dict]:
     """Convert FITS astronomical image to JPEG bytes for web display.
 
@@ -264,8 +288,13 @@ async def lifespan(app: FastAPI):
     Yields:
         None: Application runs between yield statements.
     """
+    # Populate schedule templates once at startup
+    global SCHEDULE_TEMPLATES
+    SCHEDULE_TEMPLATES = schedule_template_loader()
+
     # Load observatories
     load_observatories()
+
     yield
     # Clean up
     clean_up()
@@ -1626,14 +1655,40 @@ async def get_schedule(request: Request):
         TemplateResponse: HTML template with schedule editor and data.
     """
     obs = OBSERVATORY
-
-    # Read the raw JSONL file to preserve original datetime string format
     schedule_path = obs.schedule_manager.schedule_path
+
+    data = []  # This will hold the parsed list of objects
+
     try:
         with open(schedule_path, "r") as f:
-            schedule_jsonl = f.read().strip()
+            # 1. Filter out comments and join valid lines into one big string
+            #    We add a newline to ensure separation, though whitespace is ignored by JSON
+            valid_content = "".join(
+                line for line in f if line.strip() and not line.strip().startswith("//")
+            )
+
+            # 2. Decode the objects one by one
+            decoder = json.JSONDecoder()
+            pos = 0
+            while pos < len(valid_content):
+                # Skip whitespace to find the start of the next object
+                while pos < len(valid_content) and valid_content[pos].isspace():
+                    pos += 1
+                if pos >= len(valid_content):
+                    break
+
+                # Parse one object
+                obj, end_pos = decoder.raw_decode(valid_content, pos)
+                data.append(obj)
+                pos = end_pos
+
     except (FileNotFoundError, IOError):
-        schedule_jsonl = ""
+        data = []
+    except json.JSONDecodeError as e:
+        obs.logger.warning(
+            f"Warning: Corrupt schedule file. Parsed {len(data)} items before error: {e}"
+        )
+        data = []
 
     cameras = []
     if obs and obs.device_manager:
@@ -1646,7 +1701,8 @@ async def get_schedule(request: Request):
         context={
             "request": request,
             "observatory": OBSERVATORY.name,
-            "schedule": schedule_jsonl,
+            "schedule": data,
+            "schedule_templates": json.dumps(SCHEDULE_TEMPLATES),
             "cameras": cameras,
         },
     )
