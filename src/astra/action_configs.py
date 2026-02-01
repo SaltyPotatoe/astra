@@ -1029,7 +1029,7 @@ class AutofocusConfig(BaseActionConfig):
     search_range: Optional[List[int] | int] = None
     search_range_is_relative: bool = False
     n_steps: List[int] = field(default_factory=lambda: [30, 20])
-    n_exposures: List[int] | int = 1
+    n_exposures: List[int] | int = field(default_factory=lambda: [1, 1])
     decrease_search_range: bool = True
     star_find_threshold: float | int = 5.0
     fwhm: int = 8

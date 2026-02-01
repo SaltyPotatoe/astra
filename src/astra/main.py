@@ -217,7 +217,17 @@ def schedule_template_loader() -> dict:
             # Handle cases where there is no default value (MISSING)
             default_val = f.default
             if default_val is MISSING:
+                if f.default_factory is not MISSING:
+                    try:
+                        default_val = f.default_factory()
+                    except Exception:
+                        pass
+
+            if default_val is MISSING:
                 default_val = None  # or some other placeholder
+
+            if hasattr(default_val, "to_jsonable"):
+                default_val = default_val.to_jsonable()
 
             field_data[f.name] = default_val
 
