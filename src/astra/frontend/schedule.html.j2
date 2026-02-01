@@ -278,6 +278,9 @@
         // Action value templates
         const actionValueTemplates = {{ schedule_templates | safe }};
 
+        // Available cameras
+        const availableCameras = {{ cameras | tojson }};
+
         // Color mapping for action types
         const actionColors = {
             'open': '#10b981',     // Green
@@ -831,11 +834,12 @@
                         ${index + 1}
                     </td>
                     <td class="p-2" data-label="Device Name">
-                        <input type="text" value="${item.device_name || ''}" 
-                               list="camera-list"
-                               class="w-full bg-gray-700/50 border border-gray-600/50 rounded-lg px-2 py-1 text-sm focus:border-blue-500/50 focus:ring-1 focus:ring-blue-500/25 transition-colors"
-                               onchange="updateItem(${index}, 'device_name', this.value)"
-                               placeholder="Enter device name">
+                        <select class="w-full bg-gray-700/50 border border-gray-600/50 rounded-lg px-2 py-1 text-sm focus:border-blue-500/50 focus:ring-1 focus:ring-blue-500/25 transition-colors"
+                                onchange="updateItem(${index}, 'device_name', this.value)">
+                            <option value="" disabled ${!item.device_name ? 'selected' : ''}>Select Camera</option>
+                            ${availableCameras.map(cam => `<option value="${cam}" ${item.device_name === cam ? 'selected' : ''}>${cam}</option>`).join('')}
+                            ${item.device_name && !availableCameras.includes(item.device_name) ? `<option value="${item.device_name}" selected>${item.device_name}</option>` : ''}
+                        </select>
                     </td>
                     <td class="p-2" data-label="Action Type">
                         <select class="w-full bg-gray-700/50 border border-gray-600/50 rounded-lg px-2 py-1 text-sm focus:border-blue-500/50 focus:ring-1 focus:ring-blue-500/25 transition-colors"
