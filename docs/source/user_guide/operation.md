@@ -4,22 +4,40 @@ Observatory operation with _Astra_ is designed to be as automated and safe as po
 
 ## First Operations
 
-After starting _Astra_, we assume the following:
+For safest operations, we assume the following:
 
-- **Independent Safety:** An independent safety system is in place to monitor the observatory and weather (exposing its state via an ASCOM SafetyMonitor).
+- **Independent Safety:** An independent safety system is in place to monitor the observatory and weather (exposing its state as an ASCOM SafetyMonitor).
   - This system must be capable of independently closing the observatory should the computer running _Astra_ fail.
-  - **Recommendation:** Configure this system with weather thresholds that are _less conservative_ than _Astra_'s internal safety monitor. This ensures _Astra_ attempts a graceful closing first, with the independent system acting as a redundant fail-safe.
+  - **Recommendation:** Configure this system with weather thresholds that are _less conservative_ than _Astra_'s internal safety monitor. This ensures _Astra_ attempts closing the observatory first, with the independent system acting as a redundant fail-safe when the weather is unsafe.
 
-- **Hardware Status:** All devices are connected, aligned, and the dome is slaved (if applicable).
-  - Ensure the `close_dome_on_telescope_error` flag is set correctly for your needs in the [observatory configuration](observatory_configuration), default is `false`.
+- **Network Stability:** ASCOM Alpaca devices are reachable over the network and properly configured in the observatory configuration file.
 
-- **Focus:** The focus position is roughly set in the [observatory configuration](observatory_configuration).
+- **Properly Configured Hardware:** All device hardware is connected, aligned, and the dome is slaved (if not roll-off). In the [observatory configuration](observatory_configuration), please ensure:
+  - `close_dome_on_telescope_error` flag is set correctly for your needs, default is `false`.
+  - The `focus_position` is set to a known good value.
+  - Camera's `temperature` value is set, this will be used when cooling the camera.
 
-### 1. Create a Commissioning Schedule
+- **Accurate Timekeeping:** The system clock is set to UTC and is accurate (e.g., via NTP).
+
+## Startup
+
+Following [Quickstart](../quickstart), `astra` has a few optional startup options:
+
+```{eval-rst}
+.. argparse::
+   :module: astra.main
+   :func: get_parser
+   :prog: astra
+   :nodescription: true
+```
+
+In most cases you will run `astra` without any additional options.
+
+### First Schedule - Autofocus & Calibrate Guiding
 
 Create a schedule file containing the following sequence:
 
-**A. Open and Cool**
+**1. Open and Cool**
 First, trigger the open action. This opens the observatory and automatically cools the camera to the temperature defined in your configuration.
 
 ```json
@@ -33,7 +51,7 @@ First, trigger the open action. This opens the observatory and automatically coo
 }
 ```
 
-**B. Autofocus**
+**2. Autofocus**
 Run the autofocus routine. Ensure the `filter` matches one installed in your wheel and `exptime` is sufficient for star detection.
 
 ```json
@@ -54,9 +72,9 @@ Run the autofocus routine. Ensure the `filter` matches one installed in your whe
 }
 ```
 
-In successful completion, this will set the new focus position in the observatory configuration. Images from the autofocus process are saved in the images/autofocus/ directory in addition to a V-curve plot.
+In successful completion, this will set the new focus position in the observatory configuration. Images from the autofocus process are saved in the images/autofocus directory in addition to a V-curve plot.
 
-**C. Calibrate guiding and Pointing**
+**3. Calibrate guiding and Pointing**
 Once focused, calibrate the autoguider and (optionally) build a pointing model.
 
 ```json
@@ -80,23 +98,7 @@ Once focused, calibrate the autoguider and (optionally) build a pointing model.
 
 ```
 
-## Startup
-
-Following [Quickstart](../quickstart), `astra` has a few optional startup options:
-
-```{eval-rst}
-.. argparse::
-   :module: astra.main
-   :func: get_parser
-   :prog: astra
-   :nodescription: true
-```
-
-In most cases you will run `astra` without any additional options.
-
 ## Web Interface
-
-If you're interested in jumping straight into _Astra_, the web interface is where you'll spend most of your time. Otherwise, please continue reading for more context on how _Astra_ operates.
 
 ```{figure} ../_static/ui-robotic-switch-screenshot.jpg
 :width: 80%
