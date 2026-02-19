@@ -205,6 +205,19 @@ def format_time(ftime: datetime.datetime) -> str | None:
         return None
 
 
+def to_json_safe(value):
+    """Convert numpy/pandas scalar values to JSON-serializable Python types."""
+    if isinstance(value, np.generic):
+        return value.item()
+    if isinstance(value, pd.Timestamp):
+        return value.isoformat()
+    if isinstance(value, dict):
+        return {k: to_json_safe(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [to_json_safe(v) for v in value]
+    return value
+
+
 def schedule_template_loader() -> dict:
     output = {}
 
@@ -962,19 +975,41 @@ async def polling(device_type: str, day: float = 1, since: str | None = None):
         # Also get SafetyMonitor data
         if since is not None:
             q_isSafe = f"""SELECT * FROM polling WHERE device_type = 'SafetyMonitor' AND datetime > '{since}'"""
+            q_weather_safe = f"""SELECT * FROM polling WHERE device_type = 'WeatherSafe' AND datetime > '{since}'"""
         else:
             q_isSafe = f"""SELECT * FROM polling WHERE device_type = 'SafetyMonitor' AND datetime > datetime('now', '-{day} day')"""
+            q_weather_safe = f"""SELECT * FROM polling WHERE device_type = 'WeatherSafe' AND datetime > datetime('now', '-{day} day')"""
 
         df_isSafe = pd.read_sql_query(q_isSafe, db)
+        df_weather_safe = pd.read_sql_query(q_weather_safe, db)
 
-        # Append isSafe to df
+        # Append isSafe and WeatherSafe to df
         if not df_isSafe.empty:
             df = pd.concat([df, df_isSafe], ignore_index=True)
+        if not df_weather_safe.empty:
+            df = pd.concat([df, df_weather_safe], ignore_index=True)
+
+    if device_type == "ObservingConditions" and "Dome" in obs.config:
+        # Also get Dome data
+        if since is not None:
+            q_dome = f"""SELECT * FROM polling WHERE device_type = 'Dome'  AND device_command = 'ShutterStatus' AND datetime > '{since}'"""
+        else:
+            q_dome = f"""SELECT * FROM polling WHERE device_type = 'Dome' AND device_command = 'ShutterStatus' AND datetime > datetime('now', '-{day} day')"""
+
+        df_dome = pd.read_sql_query(q_dome, db)
+
+        # Append Dome data to df
+        if not df_dome.empty:
+            df = pd.concat([df, df_dome], ignore_index=True)
 
     db.close()
 
     # Pivot: datetime as index, device_command as columns
     df = df.pivot(index="datetime", columns="device_command", values="device_value")
+
+    # rename ShutterStatus to Dome_ShutterStatus for clarity
+    if "ShutterStatus" in df.columns:
+        df = df.rename(columns={"ShutterStatus": "Dome_Open"})
 
     # Ensure datetime index and numeric values
     df.index = pd.to_datetime(df.index)
@@ -994,6 +1029,12 @@ async def polling(device_type: str, day: float = 1, since: str | None = None):
     # Group by 60s
     df_groupby = df.groupby(pd.Grouper(freq="60s")).mean()
     df_groupby = df_groupby.dropna()
+
+    # Invert ShutterStatus to Dome_Open (1=open, 0=closed) for easier frontend use
+    if "Dome_Open" in df_groupby.columns:
+        df_groupby["Dome_Open"] = df_groupby["Dome_Open"].apply(
+            lambda x: 0 if x == 1 else 1
+        )
 
     # Add RelativeSkyTemp = SkyTemperature - Temperature
     if "SkyTemperature" in df_groupby.columns and "Temperature" in df_groupby.columns:
@@ -1049,6 +1090,8 @@ async def polling(device_type: str, day: float = 1, since: str | None = None):
             "data": df_groupby.reset_index().to_dict(orient="records"),
             "latest": latest,
         }
+
+    result = to_json_safe(result)
 
     if since is None:
         POLLING_CACHE[(device_type, day)] = (datetime.datetime.now(UTC), result)

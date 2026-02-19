@@ -21,6 +21,9 @@ function color_palette(parameter) {
         WindDirection: "rgba(100, 149, 237, 0.5)", // Cornflower blue
         WindGust: "rgba(192, 192, 192, 0.5)", // Silver gray
         WindSpeed: "rgba(32, 178, 170, 0.5)", // Dark turquoise, slightly brighter
+        weather_safe: "rgba(54, 127, 194, 0.5)", // Emerald green for safe weather
+        IsSafe: "rgba(34, 197, 94, 0.5)", // Green for safe conditions
+        Dome_Open: "rgba(255, 255, 255, 0.5)", // White for dome status
     };
 
     return colorMap[parameter] || "rgba(128, 128, 128, 0.8)"; // default to grey if parameter not found
@@ -206,14 +209,24 @@ function updateWeatherTableOnly() {
             DewPoint: 8,
             SkyBrightness: 9,
             Pressure: 10,
-            IsSafe: 11
+            weather_safe: 11,
+            IsSafe: 12,
+            Dome_Open: 13
         };
         return (priority[a] || Infinity) - (priority[b] || Infinity);
     });
-    // remove isSafe from the parameters
+    // remove isSafe, Dome_Open, weather_safe from the parameters
     const index = weather_parameters.indexOf("IsSafe");
     if (index > -1) {
         weather_parameters.splice(index, 1);
+    }
+    const index2 = weather_parameters.indexOf("Dome_Open");
+    if (index2 > -1) {
+        weather_parameters.splice(index2, 1);
+    }
+    const index3 = weather_parameters.indexOf("weather_safe");
+    if (index3 > -1) {
+        weather_parameters.splice(index3, 1);
     }
 
     const tableHtml = generateWeatherTable(weather_parameters, latest_values, weather_safety_limits);
@@ -248,7 +261,9 @@ function plotWeather(data, update) {
             DewPoint: 8,
             SkyBrightness: 9,
             Pressure: 10,
-            IsSafe: 11
+            weather_safe: 11,
+            IsSafe: 12,
+            Dome_Open: 13
         };
         return (priority[a] || Infinity) - (priority[b] || Infinity);
     });

@@ -235,6 +235,16 @@ class SafetyMonitor:
             longest_max_safe_duration,
         )
 
+    def insert_weather_safe_poll(self):
+        """Insert a poll record for the current weather safety status."""
+        if self._weather_safe is not None:
+            self.database_manager.insert_poll(
+                device_type="WeatherSafe",
+                device_name="weather_safe",
+                device_command="weather_safe",
+                device_value=str(self._weather_safe),
+            )
+
     def update_status(self) -> bool | None:
         """Run external + internal checks and update weather_safe + time_to_safe."""
         if not self.device:
@@ -304,5 +314,8 @@ class SafetyMonitor:
                 self._weather_log_warning = True
         else:
             self._weather_log_warning = True
+
+        # Insert poll record for current weather safety status
+        self.insert_weather_safe_poll()
 
         return self._weather_safe

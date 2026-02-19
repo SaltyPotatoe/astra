@@ -123,6 +123,25 @@ class DatabaseManager:
             columns=columns,
         )
 
+    def insert_poll(
+        self,
+        device_type: str,
+        device_name: str,
+        device_command: str,
+        device_value: str,
+    ) -> None:
+        """Insert a poll record into the polling table."""
+        self.cursor.execute(
+            "INSERT INTO polling (device_type, device_name, device_command, device_value, datetime) VALUES (?, ?, ?, ?, ?)",
+            (
+                device_type,
+                device_name,
+                device_command,
+                device_value,
+                datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S.%f"),
+            ),
+        )
+
     @classmethod
     def from_observatory_config(cls, observatory_config):
         return cls(
