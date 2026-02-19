@@ -52,7 +52,6 @@ from astra.logger import ConsoleStreamHandler, FileHandler
 from astra.observatory import Observatory
 from astra.observatory_loader import ObservatoryLoader
 from astra.paired_devices import PairedDevices
-from astra.polling_cache import get_or_create_entry, refresh_cache, slice_since
 
 pd.set_option("future.no_silent_downcasting", True)
 
@@ -85,6 +84,9 @@ TWILIGHT_CACHE_TIME = None
 CELESTIAL_CACHE = None
 CELESTIAL_CACHE_TIME = None
 SCHEDULE_TEMPLATES = {}
+
+# Polling data cache: stores { (device_type, day): (timestamp, result) }
+POLLING_CACHE = {}
 
 
 def observatory_db() -> sqlite3.Connection:
@@ -939,67 +941,160 @@ async def sky_data():
 async def polling(device_type: str, day: float = 1, since: str | None = None):
     """Get device polling data from observatory database.
 
-    Uses an append-only in-memory cache so that only genuinely new rows are
-    fetched from the database on each request.  Both full (``day``) and
-    incremental (``since``) requests are served from the cache after an
-    opportunistic refresh. An ``asyncio.Lock`` per cache key prevents
-    duplicate DB queries when multiple clients call concurrently.
+    Retrieves and processes telemetry data for specific device types,
+    including pivot formatting, safety limits, and statistical grouping.
 
     Args:
-        device_type: Type of device (e.g. ``'ObservingConditions'``).
-        day: Number of days of historical data to return. Defaults to 1.
-        since: Optional ISO datetime; when provided only rows newer than
-            this value are returned.
+        device_type (str): Type of device (e.g., 'ObservingConditions').
+        day (float): Number of days back to retrieve data. Defaults to 1.
+        since (str): Optional timestamp to get only newer records.
 
     Returns:
         dict: Processed polling data with safety limits and latest values.
     """
-    obs = OBSERVATORY
-    entry = await get_or_create_entry(device_type, day)
+    # Check cache for full queries (since is None)
+    if since is None:
+        cache_key = (device_type, day)
+        if cache_key in POLLING_CACHE:
+            cache_time, cache_result = POLLING_CACHE[cache_key]
+            if (datetime.datetime.now(UTC) - cache_time).total_seconds() < 60:
+                return cache_result
 
-    async with entry.lock:
-        await refresh_cache(
-            entry,
-            device_type,
-            day,
-            db_factory=observatory_db,
-            obs_config=obs.config,
+    db = observatory_db()
+    obs = OBSERVATORY
+
+    if since is not None:
+        # Only fetch new records since the given timestamp
+        q = f"""SELECT * FROM polling WHERE device_type = '{device_type}' AND datetime > '{since}'"""
+    else:
+        q = f"""SELECT * FROM polling WHERE device_type = '{device_type}' AND datetime > datetime('now', '-{day} day')"""
+
+    df = pd.read_sql_query(q, db)
+
+    if device_type == "ObservingConditions" and "SafetyMonitor" in obs.config:
+        # Also get SafetyMonitor data
+        if since is not None:
+            q_isSafe = f"""SELECT * FROM polling WHERE device_type = 'SafetyMonitor' AND datetime > '{since}'"""
+            q_weather_safe = f"""SELECT * FROM polling WHERE device_type = 'WeatherSafe' AND datetime > '{since}'"""
+        else:
+            q_isSafe = f"""SELECT * FROM polling WHERE device_type = 'SafetyMonitor' AND datetime > datetime('now', '-{day} day')"""
+            q_weather_safe = f"""SELECT * FROM polling WHERE device_type = 'WeatherSafe' AND datetime > datetime('now', '-{day} day')"""
+
+        df_isSafe = pd.read_sql_query(q_isSafe, db)
+        df_weather_safe = pd.read_sql_query(q_weather_safe, db)
+
+        # Append isSafe and WeatherSafe to df
+        if not df_isSafe.empty:
+            df = pd.concat([df, df_isSafe], ignore_index=True)
+        if not df_weather_safe.empty:
+            df = pd.concat([df, df_weather_safe], ignore_index=True)
+
+    if device_type == "ObservingConditions" and "Dome" in obs.config:
+        # Also get Dome data
+        if since is not None:
+            q_dome = f"""SELECT * FROM polling WHERE device_type = 'Dome'  AND device_command = 'ShutterStatus' AND datetime > '{since}'"""
+        else:
+            q_dome = f"""SELECT * FROM polling WHERE device_type = 'Dome' AND device_command = 'ShutterStatus' AND datetime > datetime('now', '-{day} day')"""
+
+        df_dome = pd.read_sql_query(q_dome, db)
+
+        # Append Dome data to df
+        if not df_dome.empty:
+            df = pd.concat([df, df_dome], ignore_index=True)
+
+    db.close()
+
+    # Pivot: datetime as index, device_command as columns
+    df = df.pivot(index="datetime", columns="device_command", values="device_value")
+
+    # rename ShutterStatus to Dome_ShutterStatus for clarity
+    if "ShutterStatus" in df.columns:
+        df = df.rename(columns={"ShutterStatus": "Dome_Open"})
+
+    # Ensure datetime index and numeric values
+    df.index = pd.to_datetime(df.index)
+    df = df.sort_index()
+    # Convert boolean strings/values to 1/0 before numeric conversion
+    df = df.replace({"True": 1, "False": 0, True: 1, False: 0})
+    df = df.apply(pd.to_numeric, errors="coerce")
+
+    # Latest values
+    latest = {}
+    for col in df.columns:
+        latest[col] = df[col].dropna().iloc[-1] if not df[col].dropna().empty else None
+
+    if "SkyTemperature" in latest and "Temperature" in latest:
+        latest["RelativeSkyTemp"] = latest["SkyTemperature"] - latest["Temperature"]
+
+    # Group by 60s
+    df_groupby = df.groupby(pd.Grouper(freq="60s")).mean()
+    df_groupby = df_groupby.dropna()
+
+    # Invert ShutterStatus to Dome_Open (1=open, 0=closed) for easier frontend use
+    if "Dome_Open" in df_groupby.columns:
+        df_groupby["Dome_Open"] = df_groupby["Dome_Open"].apply(
+            lambda x: 0 if x == 1 else 1
         )
 
-        # Decide which rows to return
-        if since is not None:
-            data_slice = slice_since(entry.data, since)
-        else:
-            data_slice = entry.data
+    # Add RelativeSkyTemp = SkyTemperature - Temperature
+    if "SkyTemperature" in df_groupby.columns and "Temperature" in df_groupby.columns:
+        df_groupby["RelativeSkyTemp"] = (
+            df_groupby["SkyTemperature"] - df_groupby["Temperature"]
+        )
 
-        # Build the response (same shape the frontend expects)
-        if device_type == "ObservingConditions" and "ObservingConditions" in obs.config:
-            # Calculate twilight periods if we have telescope location
-            twilight_periods: list[dict] = []
-            if "Telescope" in obs.devices:
-                try:
-                    obs_location = obs.get_observatory_location()
-                    end_time = datetime.datetime.now(UTC)
-                    start_time = end_time - datetime.timedelta(days=3)
-                    twilight_periods = calculate_twilight_periods(
-                        start_time,
-                        end_time,
-                        obs_location,  # type: ignore
-                    )
-                except Exception as e:
-                    logger.warning(f"Error calculating twilight periods: {e}")
+    if device_type == "ObservingConditions" and "ObservingConditions" in obs.config:
+        # Safety limits
+        closing_limits = obs.config["ObservingConditions"][0]["closing_limits"]
+        safety_limits = {}
 
-            result = {
-                "data": data_slice,
-                "safety_limits": entry.safety_limits or {},
-                "latest": entry.latest,
-                "twilight_periods": twilight_periods,
+        for key in closing_limits:
+            upper_val = float("inf")
+            lower_val = float("-inf")
+            for item in closing_limits[key]:
+                if item.get("upper", float("inf")) < upper_val:
+                    upper_val = item["upper"]
+                if item.get("lower", float("-inf")) > lower_val:
+                    lower_val = item["lower"]
+
+            safety_limits[key] = {
+                "upper": upper_val if upper_val != float("inf") else None,
+                "lower": lower_val if lower_val != float("-inf") else None,
             }
-        else:
-            result = {
-                "data": data_slice,
-                "latest": entry.latest,
-            }
+
+        # Calculate twilight periods if we have telescope location
+        twilight_periods = []
+        if "Telescope" in obs.devices:
+            try:
+                obs_location = obs.get_observatory_location()
+
+                # Always calculate twilight for 3 days, regardless of data range
+                end_time = datetime.datetime.now(UTC)
+                start_time = end_time - datetime.timedelta(days=3)
+
+                twilight_periods = calculate_twilight_periods(
+                    start_time,
+                    end_time,
+                    obs_location,  # type: ignore
+                )
+            except Exception as e:
+                logger.warning(f"Error calculating twilight periods: {e}")
+
+        result = {
+            "data": df_groupby.reset_index().to_dict(orient="records"),
+            "safety_limits": safety_limits,
+            "latest": latest,
+            "twilight_periods": twilight_periods,
+        }
+    else:
+        result = {
+            "data": df_groupby.reset_index().to_dict(orient="records"),
+            "latest": latest,
+        }
+
+    result = to_json_safe(result)
+
+    if since is None:
+        POLLING_CACHE[(device_type, day)] = (datetime.datetime.now(UTC), result)
 
     return result
 
