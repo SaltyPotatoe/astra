@@ -21,9 +21,9 @@ function color_palette(parameter) {
         WindDirection: "rgba(100, 149, 237, 0.5)", // Cornflower blue
         WindGust: "rgba(192, 192, 192, 0.5)", // Silver gray
         WindSpeed: "rgba(32, 178, 170, 0.5)", // Dark turquoise, slightly brighter
-        weather_safe: "rgba(54, 127, 194, 0.5)", // Emerald green for safe weather
+        WeatherSafe: "rgba(54, 127, 194, 0.5)", // Emerald green for safe weather
         IsSafe: "rgba(34, 197, 94, 0.5)", // Green for safe conditions
-        Dome_Open: "rgba(255, 255, 255, 0.5)", // White for dome status
+        DomeOpen: "rgba(255, 255, 255, 0.5)", // White for dome status
     };
 
     return colorMap[parameter] || "rgba(128, 128, 128, 0.8)"; // default to grey if parameter not found
@@ -81,17 +81,17 @@ function addUnits(parameter, weather_safety_limits) {
 // Function to generate weather table HTML
 function generateWeatherTable(weather_parameters, latest_values, weather_safety_limits) {
 
-    // remove isSafe, Dome_Open, weather_safe from the parameters
+    // remove isSafe, DomeOpen, WeatherSafe from the parameters
     const _weather_parameters = [...weather_parameters]; // create a copy to avoid mutating the original array
     const index = _weather_parameters.indexOf("IsSafe");
     if (index > -1) {
         _weather_parameters.splice(index, 1);
     }
-    const index2 = _weather_parameters.indexOf("Dome_Open");
+    const index2 = _weather_parameters.indexOf("DomeOpen");
     if (index2 > -1) {
         _weather_parameters.splice(index2, 1);
     }
-    const index3 = _weather_parameters.indexOf("weather_safe");
+    const index3 = _weather_parameters.indexOf("WeatherSafe");
     if (index3 > -1) {
         _weather_parameters.splice(index3, 1);
     }
@@ -224,9 +224,9 @@ function updateWeatherTableOnly() {
             DewPoint: 8,
             SkyBrightness: 9,
             Pressure: 10,
-            weather_safe: 11,
+            WeatherSafe: 11,
             IsSafe: 12,
-            Dome_Open: 13
+            DomeOpen: 13
         };
         return (priority[a] || Infinity) - (priority[b] || Infinity);
     });
@@ -263,9 +263,9 @@ function plotWeather(data, update) {
             DewPoint: 8,
             SkyBrightness: 9,
             Pressure: 10,
-            weather_safe: 11,
+            WeatherSafe: 11,
             IsSafe: 12,
-            Dome_Open: 13
+            DomeOpen: 13
         };
         return (priority[a] || Infinity) - (priority[b] || Infinity);
     });

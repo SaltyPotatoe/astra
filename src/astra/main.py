@@ -1009,7 +1009,7 @@ async def polling(device_type: str, day: float = 1, since: str | None = None):
 
     # rename ShutterStatus to Dome_ShutterStatus for clarity
     if "ShutterStatus" in df.columns:
-        df = df.rename(columns={"ShutterStatus": "Dome_Open"})
+        df = df.rename(columns={"ShutterStatus": "DomeOpen"})
 
     # Ensure datetime index and numeric values
     df.index = pd.to_datetime(df.index)
@@ -1030,9 +1030,9 @@ async def polling(device_type: str, day: float = 1, since: str | None = None):
     df_groupby = df.groupby(pd.Grouper(freq="60s")).mean()
     df_groupby = df_groupby.dropna()
 
-    # Invert ShutterStatus to Dome_Open (1=open, 0=closed) for easier frontend use
-    if "Dome_Open" in df_groupby.columns:
-        df_groupby["Dome_Open"] = df_groupby["Dome_Open"].apply(
+    # Invert ShutterStatus to DomeOpen (1=open, 0=closed) for easier frontend use
+    if "DomeOpen" in df_groupby.columns:
+        df_groupby["DomeOpen"] = df_groupby["DomeOpen"].apply(
             lambda x: 0 if x == 1 else 1
         )
 

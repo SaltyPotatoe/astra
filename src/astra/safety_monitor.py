@@ -240,8 +240,8 @@ class SafetyMonitor:
         if self._weather_safe is not None:
             self.database_manager.insert_poll(
                 device_type="WeatherSafe",
-                device_name="weather_safe",
-                device_command="weather_safe",
+                device_name="WeatherSafe",
+                device_command="WeatherSafe",
                 device_value=str(self._weather_safe),
             )
 
