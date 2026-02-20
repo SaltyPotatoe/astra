@@ -85,8 +85,16 @@ CELESTIAL_CACHE = None
 CELESTIAL_CACHE_TIME = None
 SCHEDULE_TEMPLATES = {}
 
-# Polling data cache: stores { (device_type, day): (timestamp, result) }
-POLLING_CACHE = {}
+# Per-device-type append-only polling cache.
+# Structure per key (device_type str):
+#   "df_groupby"      : pd.DataFrame  – datetime-indexed, 60 s-binned means
+#   "latest"          : dict          – most-recent raw value per column
+#   "safety_limits"   : dict          – closing limits from config (static)
+#   "twilight_periods": list          – twilight period list
+#   "day"             : float         – days of history currently held
+#   "cached_at"       : datetime      – UTC timestamp of last DB fetch
+POLLING_CACHE: dict = {}
+POLLING_CACHE_LOCK = asyncio.Lock()
 
 
 def observatory_db() -> sqlite3.Connection:
@@ -937,166 +945,296 @@ async def sky_data():
         }
 
 
-@app.get("/api/db/polling/{device_type}")
-async def polling(device_type: str, day: float = 1, since: str | None = None):
-    """Get device polling data from observatory database.
+def _query_raw_polling_df(
+    device_type: str,
+    obs,
+    since_str: str | None = None,
+    day: float = 1,
+) -> pd.DataFrame:
+    """Query raw polling rows from the DB, merging auxiliary device tables.
 
-    Retrieves and processes telemetry data for specific device types,
-    including pivot formatting, safety limits, and statistical grouping.
+    For ObservingConditions, also pulls SafetyMonitor, WeatherSafe and Dome
+    (ShutterStatus) rows so they can be pivoted alongside weather columns.
 
     Args:
-        device_type (str): Type of device (e.g., 'ObservingConditions').
-        day (float): Number of days back to retrieve data. Defaults to 1.
-        since (str): Optional timestamp to get only newer records.
+        device_type: Primary device type to query.
+        obs: Observatory instance (used to inspect config).
+        since_str: If set, fetch rows with datetime > this string instead of
+                   using the ``day`` window.
+        day: Days of history to fetch when ``since_str`` is ``None``.
 
     Returns:
-        dict: Processed polling data with safety limits and latest values.
+        Raw merged DataFrame with columns [datetime, device_command,
+        device_value, …].
     """
-    # Check cache for full queries (since is None)
-    if since is None:
-        cache_key = (device_type, day)
-        if cache_key in POLLING_CACHE:
-            cache_time, cache_result = POLLING_CACHE[cache_key]
-            if (datetime.datetime.now(UTC) - cache_time).total_seconds() < 60:
-                return cache_result
-
     db = observatory_db()
-    obs = OBSERVATORY
 
-    if since is not None:
-        # Only fetch new records since the given timestamp
-        q = f"""SELECT * FROM polling WHERE device_type = '{device_type}' AND datetime > '{since}'"""
+    if since_str is not None:
+        q = f"SELECT * FROM polling WHERE device_type = '{device_type}' AND datetime > '{since_str}'"
     else:
-        q = f"""SELECT * FROM polling WHERE device_type = '{device_type}' AND datetime > datetime('now', '-{day} day')"""
+        q = f"SELECT * FROM polling WHERE device_type = '{device_type}' AND datetime > datetime('now', '-{day} day')"
 
     df = pd.read_sql_query(q, db)
 
-    if device_type == "ObservingConditions" and "SafetyMonitor" in obs.config:
-        # Also get SafetyMonitor data
-        if since is not None:
-            q_isSafe = f"""SELECT * FROM polling WHERE device_type = 'SafetyMonitor' AND datetime > '{since}'"""
-            q_weather_safe = f"""SELECT * FROM polling WHERE device_type = 'WeatherSafe' AND datetime > '{since}'"""
-        else:
-            q_isSafe = f"""SELECT * FROM polling WHERE device_type = 'SafetyMonitor' AND datetime > datetime('now', '-{day} day')"""
-            q_weather_safe = f"""SELECT * FROM polling WHERE device_type = 'WeatherSafe' AND datetime > datetime('now', '-{day} day')"""
+    if device_type == "ObservingConditions":
+        if "SafetyMonitor" in obs.config:
+            if since_str is not None:
+                q_isSafe = f"SELECT * FROM polling WHERE device_type = 'SafetyMonitor' AND datetime > '{since_str}'"
+                q_weather_safe = f"SELECT * FROM polling WHERE device_type = 'WeatherSafe' AND datetime > '{since_str}'"
+            else:
+                q_isSafe = f"SELECT * FROM polling WHERE device_type = 'SafetyMonitor' AND datetime > datetime('now', '-{day} day')"
+                q_weather_safe = f"SELECT * FROM polling WHERE device_type = 'WeatherSafe' AND datetime > datetime('now', '-{day} day')"
 
-        df_isSafe = pd.read_sql_query(q_isSafe, db)
-        df_weather_safe = pd.read_sql_query(q_weather_safe, db)
+            df_isSafe = pd.read_sql_query(q_isSafe, db)
+            df_weather_safe = pd.read_sql_query(q_weather_safe, db)
 
-        # Append isSafe and WeatherSafe to df
-        if not df_isSafe.empty:
-            df = pd.concat([df, df_isSafe], ignore_index=True)
-        if not df_weather_safe.empty:
-            df = pd.concat([df, df_weather_safe], ignore_index=True)
+            if not df_isSafe.empty:
+                df = pd.concat([df, df_isSafe], ignore_index=True)
+            if not df_weather_safe.empty:
+                df = pd.concat([df, df_weather_safe], ignore_index=True)
 
-    if device_type == "ObservingConditions" and "Dome" in obs.config:
-        # Also get Dome data
-        if since is not None:
-            q_dome = f"""SELECT * FROM polling WHERE device_type = 'Dome'  AND device_command = 'ShutterStatus' AND datetime > '{since}'"""
-        else:
-            q_dome = f"""SELECT * FROM polling WHERE device_type = 'Dome' AND device_command = 'ShutterStatus' AND datetime > datetime('now', '-{day} day')"""
+        if "Dome" in obs.config:
+            if since_str is not None:
+                q_dome = f"SELECT * FROM polling WHERE device_type = 'Dome' AND device_command = 'ShutterStatus' AND datetime > '{since_str}'"
+            else:
+                q_dome = f"SELECT * FROM polling WHERE device_type = 'Dome' AND device_command = 'ShutterStatus' AND datetime > datetime('now', '-{day} day')"
 
-        df_dome = pd.read_sql_query(q_dome, db)
-
-        # Append Dome data to df
-        if not df_dome.empty:
-            df = pd.concat([df, df_dome], ignore_index=True)
+            df_dome = pd.read_sql_query(q_dome, db)
+            if not df_dome.empty:
+                df = pd.concat([df, df_dome], ignore_index=True)
 
     db.close()
+    return df
 
+
+def _process_polling_raw(df: pd.DataFrame) -> tuple[pd.DataFrame, dict]:
+    """Pivot, normalise, and group raw polling rows into a 60 s-binned DataFrame.
+
+    Args:
+        df: Raw polling DataFrame with columns [datetime, device_command,
+            device_value].
+
+    Returns:
+        ``(df_groupby, latest)`` where *df_groupby* is a datetime-indexed
+        DataFrame of 60 s means and *latest* is a dict of the most-recent
+        value per column (derived from the pre-groupby raw data).
+    """
     # Pivot: datetime as index, device_command as columns
     df = df.pivot(index="datetime", columns="device_command", values="device_value")
 
-    # rename ShutterStatus to Dome_ShutterStatus for clarity
     if "ShutterStatus" in df.columns:
         df = df.rename(columns={"ShutterStatus": "DomeOpen"})
 
-    # Ensure datetime index and numeric values
     df.index = pd.to_datetime(df.index)
     df = df.sort_index()
-    # Convert boolean strings/values to 1/0 before numeric conversion
     df = df.replace({"True": 1, "False": 0, True: 1, False: 0})
     df = df.apply(pd.to_numeric, errors="coerce")
 
-    # Latest values
-    latest = {}
+    # Latest values from high-resolution raw data (before grouping)
+    latest: dict = {}
     for col in df.columns:
-        latest[col] = df[col].dropna().iloc[-1] if not df[col].dropna().empty else None
+        non_null = df[col].dropna()
+        if not non_null.empty:
+            latest[col] = non_null.iloc[-1]
 
     if "SkyTemperature" in latest and "Temperature" in latest:
         latest["RelativeSkyTemp"] = latest["SkyTemperature"] - latest["Temperature"]
 
-    # Group by 60s
+    # Group by 60 s
     df_groupby = df.groupby(pd.Grouper(freq="60s")).mean()
     df_groupby = df_groupby.dropna()
 
-    # Invert ShutterStatus to DomeOpen (1=open, 0=closed) for easier frontend use
+    # Invert DomeOpen so 1 = open, 0 = closed (raw ShutterStatus: 1 = closed)
     if "DomeOpen" in df_groupby.columns:
         df_groupby["DomeOpen"] = df_groupby["DomeOpen"].apply(
             lambda x: 0 if x == 1 else 1
         )
 
-    # Add RelativeSkyTemp = SkyTemperature - Temperature
+    # Derived column
     if "SkyTemperature" in df_groupby.columns and "Temperature" in df_groupby.columns:
         df_groupby["RelativeSkyTemp"] = (
             df_groupby["SkyTemperature"] - df_groupby["Temperature"]
         )
 
-    if device_type == "ObservingConditions" and "ObservingConditions" in obs.config:
-        # Safety limits
-        closing_limits = obs.config["ObservingConditions"][0]["closing_limits"]
-        safety_limits = {}
+    return df_groupby, latest
 
-        for key in closing_limits:
-            upper_val = float("inf")
-            lower_val = float("-inf")
-            for item in closing_limits[key]:
-                if item.get("upper", float("inf")) < upper_val:
-                    upper_val = item["upper"]
-                if item.get("lower", float("-inf")) > lower_val:
-                    lower_val = item["lower"]
 
-            safety_limits[key] = {
-                "upper": upper_val if upper_val != float("inf") else None,
-                "lower": lower_val if lower_val != float("-inf") else None,
+@app.get("/api/db/polling/{device_type}")
+async def polling(device_type: str, day: float = 1, since: str | None = None):
+    """Get device polling data from observatory database.
+
+    Uses an append-only in-memory cache keyed by *device_type*:
+
+    * **First request** performs a full DB query (up to ``day`` days) and
+      stores the result.
+    * **Subsequent requests** fetch only the rows newer than
+      ``last_cached_timestamp - 2 min``, reprocess that overlap window to
+      ensure the most-recent 60 s bucket is complete, merge into the cache,
+      and prune rows older than the requested ``day`` window.
+    * Concurrent requests share a single ``asyncio.Lock`` so only one DB
+      fetch runs at a time; any waiter re-uses the freshly-updated cache.
+
+    Args:
+        device_type (str): Type of device (e.g. ``'ObservingConditions'``).
+        day (float): Days of history to include in the response. Defaults to 1.
+        since (str): Optional ISO-format UTC timestamp; if supplied the
+                     response payload is filtered to rows newer than this
+                     value (the cache itself always holds the full window).
+
+    Returns:
+        dict: Processed polling data with safety limits and latest values.
+    """
+    # Skip the DB entirely for concurrent requests if already fresh.
+    FRESH_THRESHOLD_S = 30
+    # Re-process the last N minutes of the cache so the most-recent 60 s
+    # groupby bucket never contains only a partial set of raw rows.
+    OVERLAP_MINUTES = 2
+
+    obs = OBSERVATORY
+    now = datetime.datetime.now(UTC)
+
+    async with POLLING_CACHE_LOCK:
+        cache = POLLING_CACHE.get(device_type)
+
+        cache_covers_day = (
+            cache is not None and cache["day"] >= day and not cache["df_groupby"].empty
+        )
+        cache_is_fresh = (
+            cache_covers_day
+            and (now - cache["cached_at"]).total_seconds() < FRESH_THRESHOLD_S
+        )
+
+        if not cache_is_fresh:
+            if cache_covers_day:
+                # ---- incremental update ----------------------------------------
+                # Query raw rows starting from (last grouped timestamp - overlap)
+                # so the boundary 60 s bucket is always fully recalculated.
+                last_ts = cache["df_groupby"].index[-1]
+                overlap_time = last_ts - datetime.timedelta(minutes=OVERLAP_MINUTES)
+                since_str = overlap_time.strftime("%Y-%m-%d %H:%M:%S")
+
+                df_new_raw = _query_raw_polling_df(
+                    device_type, obs, since_str=since_str
+                )
+
+                if not df_new_raw.empty:
+                    df_new_grouped, latest_new = _process_polling_raw(df_new_raw)
+
+                    # Drop the overlapping tail from the cached df, then append
+                    df_head = cache["df_groupby"][
+                        cache["df_groupby"].index < overlap_time
+                    ]
+                    df_merged = pd.concat([df_head, df_new_grouped])
+
+                    # Prune to the cache's own day limit (not the current
+                    # request's day) so a narrow request never destroys
+                    # historical data held for a wider one.
+                    cutoff = (now - datetime.timedelta(days=cache["day"])).replace(
+                        tzinfo=None
+                    )
+                    df_merged = df_merged[df_merged.index >= cutoff]
+
+                    # Merge latest: new non-None values win
+                    merged_latest = {
+                        **cache["latest"],
+                        **{k: v for k, v in latest_new.items() if v is not None},
+                    }
+                    cache["df_groupby"] = df_merged
+                    cache["latest"] = merged_latest
+
+                # Always refresh cached_at so concurrent waiters skip the DB.
+                cache["cached_at"] = now
+
+            else:
+                # ---- full query ------------------------------------------------
+                df_raw = _query_raw_polling_df(device_type, obs, day=day)
+
+                if df_raw.empty:
+                    return {
+                        "status": "success",
+                        "data": [],
+                        "latest": {},
+                        "message": "No data",
+                    }
+
+                df_groupby, latest = _process_polling_raw(df_raw)
+
+                # Safety limits are config-derived and therefore static.
+                safety_limits: dict = {}
+                if (
+                    device_type == "ObservingConditions"
+                    and "ObservingConditions" in obs.config
+                ):
+                    closing_limits = obs.config["ObservingConditions"][0][
+                        "closing_limits"
+                    ]
+                    for key in closing_limits:
+                        upper_val = float("inf")
+                        lower_val = float("-inf")
+                        for item in closing_limits[key]:
+                            if item.get("upper", float("inf")) < upper_val:
+                                upper_val = item["upper"]
+                            if item.get("lower", float("-inf")) > lower_val:
+                                lower_val = item["lower"]
+                        safety_limits[key] = {
+                            "upper": upper_val if upper_val != float("inf") else None,
+                            "lower": lower_val if lower_val != float("-inf") else None,
+                        }
+
+                cache = {
+                    "df_groupby": df_groupby,
+                    "latest": latest,
+                    "safety_limits": safety_limits,
+                    "twilight_periods": [],
+                    "day": day,
+                    "cached_at": now,
+                }
+                POLLING_CACHE[device_type] = cache
+
+        # ---- twilight periods (own 1-min TWILIGHT_CACHE, recalc as needed) ----
+        if device_type == "ObservingConditions" and "ObservingConditions" in obs.config:
+            if "Telescope" in obs.devices:
+                try:
+                    obs_location = obs.get_observatory_location()
+                    end_time = now
+                    start_time = end_time - datetime.timedelta(days=3)
+                    twilight_periods = calculate_twilight_periods(
+                        start_time,
+                        end_time,
+                        obs_location,  # type: ignore
+                    )
+                    cache["twilight_periods"] = twilight_periods
+                except Exception as e:
+                    logger.warning(f"Error calculating twilight periods: {e}")
+
+        # ---- build response ---------------------------------------------------
+        df_response = cache["df_groupby"]
+
+        # Slice to the requested day window (cache may hold more history)
+        day_cutoff = (now - datetime.timedelta(days=day)).replace(tzinfo=None)
+        df_response = df_response[df_response.index >= day_cutoff]
+
+        if since is not None:
+            # Normalise to tz-naive for comparison with the tz-naive index.
+            since_dt = pd.to_datetime(since)
+            if since_dt.tzinfo is not None:
+                since_dt = since_dt.tz_convert("UTC").tz_localize(None)
+            df_response = df_response[df_response.index > since_dt]
+
+        if device_type == "ObservingConditions" and "ObservingConditions" in obs.config:
+            result = {
+                "data": df_response.reset_index().to_dict(orient="records"),
+                "safety_limits": cache["safety_limits"],
+                "latest": cache["latest"],
+                "twilight_periods": cache.get("twilight_periods", []),
+            }
+        else:
+            result = {
+                "data": df_response.reset_index().to_dict(orient="records"),
+                "latest": cache["latest"],
             }
 
-        # Calculate twilight periods if we have telescope location
-        twilight_periods = []
-        if "Telescope" in obs.devices:
-            try:
-                obs_location = obs.get_observatory_location()
-
-                # Always calculate twilight for 3 days, regardless of data range
-                end_time = datetime.datetime.now(UTC)
-                start_time = end_time - datetime.timedelta(days=3)
-
-                twilight_periods = calculate_twilight_periods(
-                    start_time,
-                    end_time,
-                    obs_location,  # type: ignore
-                )
-            except Exception as e:
-                logger.warning(f"Error calculating twilight periods: {e}")
-
-        result = {
-            "data": df_groupby.reset_index().to_dict(orient="records"),
-            "safety_limits": safety_limits,
-            "latest": latest,
-            "twilight_periods": twilight_periods,
-        }
-    else:
-        result = {
-            "data": df_groupby.reset_index().to_dict(orient="records"),
-            "latest": latest,
-        }
-
-    result = to_json_safe(result)
-
-    if since is None:
-        POLLING_CACHE[(device_type, day)] = (datetime.datetime.now(UTC), result)
-
-    return result
+        return to_json_safe(result)
 
 
 @app.get("/api/db/guiding")
