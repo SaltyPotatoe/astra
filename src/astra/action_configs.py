@@ -1045,6 +1045,7 @@ class AutofocusConfig(BaseActionConfig):
 
     exptime: float | int = field(default=3.0)
     filter: Optional[str] = None
+    bin: int = 1
     reduce_exposure_time: bool = False
     search_range: Optional[List[int] | int] = None
     search_range_is_relative: bool = False
@@ -1080,6 +1081,7 @@ class AutofocusConfig(BaseActionConfig):
     FIELD_DESCRIPTIONS: ClassVar[dict[str, str]] = {
         "exptime": "Exposure time for focus frames in seconds.",
         "filter": "Filter to use during autofocus procedure.",
+        "bin": "Camera binning factor.",
         "search_range": "Range of focus positions to search. Accepts a single width or explicit bounds.",
         "search_range_is_relative": "Interpret search_range relative to the current focus position.",
         "n_steps": "Number of steps for each sweep.",
