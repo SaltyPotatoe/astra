@@ -15,6 +15,14 @@ such as object observations with [plate-solve](https://doi.org/10.1093/mnras/sta
 
 A [FastAPI](https://fastapi.tiangolo.com/) web interface provides a browser UI, alongside REST and WebSocket APIs for real-time status monitoring, image previews, and interaction with the [SQLite](https://sqlite.org/index.html)-backed database.
 
+<iframe
+  src="https://www.youtube.com/embed/QIElFSS1hkA?rel=0"
+  style="width:100%;aspect-ratio:16/9;border:0;"
+  allow="fullscreen"
+  loading="lazy"
+  referrerpolicy="strict-origin-when-cross-origin">
+</iframe>
+
 ## Used By
 
 Currently, _Astra_ is deployed at multiple professional observatories
