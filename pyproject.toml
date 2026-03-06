@@ -22,7 +22,14 @@ test = [
 ]
 
 [project]
-authors = [{name = "Peter Pedersen "}]
+authors = [
+  {email = "ppedersen@phys.ethz.ch", name = "Peter P. Pedersen"},
+  {email = "ddegen@phys.ethz.ch", name = "David Degen"},
+  {email = "garcia.lio@pm.me", name = "Lionel Garcia"},
+  {email = "sgzuniga@uliege.be", name = "Sebastián Zúñiga-Fernández"},
+  {email = "sebastian@tls-tautenburg.de", name = "Daniel Sebastian"},
+  {email = "urs.schroffenegger@unibe.ch", name = "Urs Schroffenegger"}
+]
 classifiers = [
   "Development Status :: 4 - Beta",
   "Intended Audience :: Developers",

@@ -14,10 +14,10 @@ authors:
     affiliation: >-
       ETH Zürich, Department of Physics, ETH Zurich,
       Wolfgang-Pauli-Strasse 2, 8093 Zurich, Switzerland
-    orcid: 'https://orcid.org/0000-0002-5220-609X'
+    orcid: "https://orcid.org/0000-0002-5220-609X"
   - given-names: David
     family-names: Degen
-    orcid: 'https://orcid.org/0009-0008-1068-481X'
+    orcid: "https://orcid.org/0009-0008-1068-481X"
     affiliation: >-
       ETH Zürich, Department of Physics, ETH Zurich,
       Wolfgang-Pauli-Strasse 2, 8093 Zurich, Switzerland
@@ -25,39 +25,39 @@ authors:
   - given-names: Lionel
     family-names: Garcia
     email: garcia.lio@pm.me
-    orcid: 'https://orcid.org/0000-0002-4296-2246'
+    orcid: "https://orcid.org/0000-0002-4296-2246"
   - given-names: Sebastián
     family-names: Zúñiga-Fernández
-    orcid: 'https://orcid.org/0000-0002-9350-830X'
+    orcid: "https://orcid.org/0000-0002-9350-830X"
     affiliation: >-
       Astrobiology Research Unit, Université de Liège,
       Liège, Belgium
     email: sgzuniga@uliege.be
   - given-names: Daniel
     family-names: Sebastian
-    orcid: 'https://orcid.org/0000-0002-2214-9258'
+    orcid: "https://orcid.org/0000-0002-2214-9258"
     affiliation: Thüringer Landessternwarte
     email: sebastian@tls-tautenburg.de
   - given-names: Urs
     family-names: Schroffenegger
-    orcid: 'https://orcid.org/0009-0005-5046-203X'
+    orcid: "https://orcid.org/0009-0005-5046-203X"
     affiliation: >-
       Center for Space and Habitability, 
       University of Bern, Gesellschaftsstrasse 6, 
       3012 Bern, Switzerland
-    email:
+    email: urs.schroffenegger@unibe.ch
   - given-names: Didier
     family-names: Queloz
-    orcid: 'https://orcid.org/0000-0002-3012-0316'
+    orcid: "https://orcid.org/0000-0002-3012-0316"
     affiliation: >-
       ETH Zürich, Department of Physics, ETH Zurich,
       Wolfgang-Pauli-Strasse 2, 8093 Zurich, Switzerland
 identifiers:
   - type: url
-    value: 'https://github.com/ppp-one/astra'
+    value: "https://github.com/ppp-one/astra"
     description: The URL of latest version of the software
-repository-code: 'https://github.com/ppp-one/astra'
-url: 'https://github.com/ppp-one/astra'
+repository-code: "https://github.com/ppp-one/astra"
+url: "https://github.com/ppp-one/astra"
 abstract: >-
   Astra (Automated Survey observaTory Robotised with Alpaca)
   is an open-source observatory control software for
