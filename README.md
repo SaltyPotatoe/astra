@@ -77,3 +77,5 @@ title = {{Astra}},
 url = {https://github.com/ppp-one/astra}
 }
 ```
+
+> [DOI 10.5281/zenodo.18890151](https://doi.org/10.5281/zenodo.18890151)
