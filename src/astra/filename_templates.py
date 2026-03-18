@@ -18,7 +18,7 @@ Key behavior
 
 Quick example
 -------------
->>> from astra.image_handler import FilenameTemplates
+>>> from astra.filename_templates import FilenameTemplates
 >>> templates = FilenameTemplates()
 >>> templates.render_filename(**templates.TEST_KWARGS)
 '20240101/TestCamera_TestFilter_TestObject_300.123_2025-01-01_00-00-00.fits'
@@ -84,7 +84,7 @@ class FilenameTemplates:
 
     Examples:
 
-        >>> from astra.image_handler import FilenameTemplates
+        >>> from astra.filename_templates import FilenameTemplates
 
         Default templates
 
@@ -184,7 +184,7 @@ class FilenameTemplates:
 
             Basic Example using :py:meth:`str.format` syntax:
 
-            >>> from astra.image_handler import FilenameTemplates
+            >>> from astra.filename_templates import FilenameTemplates
             >>> templates = FilenameTemplates.from_dict(
             ...     {
             ...         "object": "{device}_{object_name}_{timestamp}.fits",
@@ -205,7 +205,7 @@ class FilenameTemplates:
 
             Example using :py:class:`jinja2.Template` syntax:
 
-            >>> from astra.image_handler import FilenameTemplates
+            >>> from astra.filename_templates import FilenameTemplates
             >>> templates = FilenameTemplates.from_dict(
             ...     {
             ...         "object": "{{ device }}_{{ object_name }}_{{ timestamp }}.fits",
@@ -235,7 +235,16 @@ class FilenameTemplates:
 
         return cls(**valid_keywords)
 
+    def _validate_action_type(self, action_type: str) -> None:
+        if action_type not in self.SUPPORTED_ACTION_TYPES:
+            supported = sorted(self.SUPPORTED_ACTION_TYPES)
+            raise ValueError(
+                f"Invalid action_type: {action_type!r}. Expected one of: {supported}"
+            )
+
     def render_filename(self, action_type, **kwargs) -> str:
+        self._validate_action_type(action_type)
+
         imagetype_standardised = self._get_imagetype(kwargs.pop("imagetype"))
 
         return getattr(self, action_type).format(
@@ -272,7 +281,7 @@ class JinjaFilenameTemplates(FilenameTemplates):
 
         Let's create a template with more advanced logic using :py:class:`jinja2.Template` syntax.
 
-        >>> from astra.image_handler import JinjaFilenameTemplates
+        >>> from astra.filename_templates import JinjaFilenameTemplates
         >>> flat_template = (
         ...     # use subdirs
         ...     "{{ imagetype.split('_')[0].upper() }}/{{ device }}_"
@@ -316,6 +325,8 @@ class JinjaFilenameTemplates(FilenameTemplates):
         self._validate()
 
     def render_filename(self, action_type, **kwargs) -> str:
+        self._validate_action_type(action_type)
+
         imagetype_standardised = self._get_imagetype(kwargs.pop("imagetype"))
 
         return self._compiled_templates[action_type].render(
