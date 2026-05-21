@@ -17,7 +17,6 @@ import math
 import logging
 import time
 from datetime import datetime
-from pathlib import Path
 from typing import Any, Tuple
 
 import astropy.units as u
@@ -53,23 +52,46 @@ class NotMovingBodyError(ValueError):
 def _save_and_log_horizons_output(
     body_name: str, context: str, eph: Any, call_input: dict[str, Any]
 ) -> None:
-    """Persist raw Horizons output locally and mirror the API call input into the logger."""
+    """Persist Horizons diagnostics only when debug logging is enabled."""
+    if not logger.isEnabledFor(logging.DEBUG):
+        return
+
     try:
         from astra.config import Config
 
         horizons_dir = Config().paths.logs / "horizons"
         horizons_dir.mkdir(parents=True, exist_ok=True)
         safe_name = body_name.replace(" ", "_").replace("/", "_")
-        output_path = horizons_dir / f"{safe_name}_{context}_{datetime.utcnow().strftime('%Y%m%dT%H%M%S%f')}.ecsv"
+        output_path = horizons_dir / (f"{safe_name}_{context}_{datetime.utcnow().strftime('%Y%m%dT%H%M%S%f')}.ecsv")
         eph.write(output_path, format="ascii.ecsv", overwrite=True)
-        logger.warning("Saved raw Horizons output for %s (%s) to %s", body_name, context, output_path)
-    except Exception as exc:
-        logger.warning("Failed to save raw Horizons output for %s (%s): %s", body_name, context, exc)
+        logger.debug(
+             "Saved raw Horizons output for %s (%s) to %s",
+             body_name,
+             context,
+             output_path,
+         )
+    except BaseException as exc:
+        logger.debug(
+            "Failed to save raw Horizons output for %s (%s): %s",
+            body_name,
+            context,
+            exc,
+        )
 
     try:
-        logger.warning("Horizons API call input for %s (%s): %s", body_name, context, call_input)
-    except Exception as exc:
-        logger.warning("Failed to log Horizons API call input for %s (%s): %s", body_name, context, exc)
+        logger.debug(
+            "Horizons API call input for %s (%s): %s",
+            body_name,
+            context,
+            call_input,
+        )
+    except BaseException as exc:
+        logger.debug(
+            "Failed to log Horizons API call input for %s (%s): %s",
+            body_name,
+            context,
+            exc,
+        )
 
 
 class CustomImageClass(Image):

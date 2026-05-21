@@ -658,6 +658,8 @@ class ObjectActionConfig(BaseActionConfig):
             (ra_deg, dec_deg) at start_time.
         """
         duration_hours = (end_time - start_time).to_value("hr") + 0.5
+        if (self.nonsidereal_recenter_interval == 0):
+            self.nonsidereal_recenter_interval = duration_hours * 3600
         try:
             (
                 self._ra_interp,
