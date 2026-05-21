@@ -167,7 +167,7 @@ def create_schedule_data(
             "action_value": {
                 "object": "ISS",
                 "lookup_name": "TLE",
-                "tle": "1 25544U 98067A   26119.49027627  .00007115  00000-0  13705-3 0  9999\n2 25544  51.6319 181.1364 0007113   4.2135 355.8912 15.49020532564209",
+                "tle": "1 25544U 98067A   26141.16510469  .00005835  00000-0  11282-3 0  9994\n2 25544  51.6328  73.8715 0007529  81.3651 278.8190 15.49291753567565",
                 "exptime": 1,
                 "filter": "Clear",
                 "guiding": False,
@@ -1148,7 +1148,7 @@ class TestScheduleActionTypes:
         takes at least one image, and that tracking rates are reset on teardown.
         """
         set_safety_monitor_safe(server_url)
-        set_location_for_body_visibility(server_url, "tle", tle="1 25544U 98067A   26119.49027627  .00007115  00000-0  13705-3 0  9999\n2 25544  51.6319 181.1364 0007113   4.2135 355.8912 15.49020532564209")
+        set_location_for_body_visibility(server_url, "tle", tle="1 25544U 98067A   26141.16510469  .00005835  00000-0  11282-3 0  9994\n2 25544  51.6328  73.8715 0007529  81.3651 278.8190 15.49291753567565")
         schedule_data = create_schedule_data("tle", temp_config)
 
         with schedule_manager(schedule_data):
@@ -1189,8 +1189,7 @@ class TestScheduleActionTypes:
     ):
         """TLE non-sidereal tracking must stop safely during weather alert."""
         tle = (
-            "1 25544U 98067A   26119.49027627  .00007115  00000-0  13705-3 0  9999\n"
-            "2 25544  51.6319 181.1364 0007113   4.2135 355.8912 15.49020532564209"
+            "1 25544U 98067A   26141.16510469  .00005835  00000-0  11282-3 0  9994\n2 25544  51.6328  73.8715 0007529  81.3651 278.8190 15.49291753567565"
         )
         set_safety_monitor_safe(server_url)
         set_location_for_body_visibility(server_url, "tle", tle=tle)
@@ -1245,8 +1244,7 @@ class TestScheduleActionTypes:
     ):
         """Helper precomputed path should closely match schedule-generated ephemeris."""
         tle = (
-            "1 25544U 98067A   26119.49027627  .00007115  00000-0  13705-3 0  9999\n"
-            "2 25544  51.6319 181.1364 0007113   4.2135 355.8912 15.49020532564209"
+            "1 25544U 98067A   26141.16510469  .00005835  00000-0  11282-3 0  9994\n2 25544  51.6328  73.8715 0007529  81.3651 278.8190 15.49291753567565"
         )
         set_safety_monitor_safe(server_url)
         set_location_for_body_visibility(server_url, "TLE", tle=tle)
@@ -1388,7 +1386,7 @@ class TestScheduleActionTypes:
     ):
         """Mount pointing should remain close to TLE target at multiple times."""
         tle = (
-            "1 25544U 98067A   26119.49027627  .00007115  00000-0  13705-3 0  9999\n2 25544  51.6319 181.1364 0007113   4.2135 355.8912 15.49020532564209"
+            "1 25544U 98067A   26141.16510469  .00005835  00000-0  11282-3 0  9994\n2 25544  51.6328  73.8715 0007529  81.3651 278.8190 15.49291753567565"
         )
         set_safety_monitor_safe(server_url)
         set_location_for_body_visibility(server_url, "TLE", tle=tle)
@@ -1443,7 +1441,7 @@ class TestScheduleActionTypes:
     ):
         """The telescope should be on the pre-point target before rates turn on."""
         tle = (
-            "1 25544U 98067A   26119.49027627  .00007115  00000-0  13705-3 0  9999\n2 25544  51.6319 181.1364 0007113   4.2135 355.8912 15.49020532564209"
+            "1 25544U 98067A   26141.16510469  .00005835  00000-0  11282-3 0  9994\n2 25544  51.6328  73.8715 0007529  81.3651 278.8190 15.49291753567565"
         )
         set_safety_monitor_safe(server_url)
         set_location_for_body_visibility(server_url, "TLE", tle=tle)
