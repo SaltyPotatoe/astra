@@ -624,21 +624,21 @@ async def schedule():
         list: Schedule items with start/end times formatted as HH:MM:SS,
               or empty list if no schedule exists.
     """
-    obs = OBSERVATORY
-    if (
-        obs is None
-        or not hasattr(obs, "schedule_manager")
-        or obs.schedule_manager is None
-    ):
-        logger.warning(
-            "Schedule request but OBSERVATORY not initialized or has no schedule_manager"
-        )
-        return []
-
-    if getattr(obs.schedule_manager, "schedule_mtime", 0) == 0:
-        return []
-
     try:
+        obs = OBSERVATORY
+        if (
+            obs is None
+            or not hasattr(obs, "schedule_manager")
+            or obs.schedule_manager is None
+        ):
+            logger.warning(
+                "Schedule request but OBSERVATORY not initialized or has no schedule_manager"
+            )
+            return []
+
+        if getattr(obs.schedule_manager, "schedule_mtime", 0) == 0:
+            return []
+
         schedule_obj = obs.schedule_manager.get_schedule()
         schedule = schedule_obj.to_dataframe()
 
@@ -649,8 +649,16 @@ async def schedule():
         schedule["end_HHMMSS"] = pd.to_datetime(
             schedule["end_time"], errors="coerce"
         ).apply(lambda x: x.strftime("%H:%M:%S") if pd.notna(x) else "")
+
+        # remove private keys from action_value
+        schedule["action_value"] = schedule["action_value"].apply(
+            lambda x: {k: v for k, v in x.items() if not k.startswith("_")}
+            if isinstance(x, dict)
+            else x
+        )
+
         obs.logger.debug("Schedule read for frontend")
-        result = schedule.to_dict(orient="records")
+        result = json.loads(schedule.to_json(orient="records", date_format="iso"))
 
         return result
 
