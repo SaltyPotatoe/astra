@@ -1,9 +1,9 @@
 """Non-sidereal (solar system body) tracking for observatory imaging sequences.
 
 This module provides the machinery for tracking solar system objects (comets,
-asteroids, planets, Earth-orbiting objects) whose celestial coordinates change 
-significantly over short timescales. It uses high-precision cubic interpolation 
-of pre-computed ephemerides to provide smooth, differential tracking rates to 
+asteroids, planets, Earth-orbiting objects) whose celestial coordinates change
+significantly over short timescales. It uses high-precision cubic interpolation
+of pre-computed ephemerides to provide smooth, differential tracking rates to
 the telescope mount via ASCOM.
 
 Key Capabilities:
@@ -102,7 +102,9 @@ class NonSiderealManager:
             return
         self._apply_rates(telescope, self._state)
 
-    def prepoint_coordinates(self, lead_time_seconds: float = 60.0) -> tuple[float, float] | None:
+    def prepoint_coordinates(
+        self, lead_time_seconds: float = 60.0
+    ) -> tuple[float, float] | None:
         """Return RA/Dec for an initial lead-pointing slew.
 
         Args:
