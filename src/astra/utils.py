@@ -62,14 +62,16 @@ def _save_and_log_horizons_output(
         horizons_dir = Config().paths.logs / "horizons"
         horizons_dir.mkdir(parents=True, exist_ok=True)
         safe_name = body_name.replace(" ", "_").replace("/", "_")
-        output_path = horizons_dir / (f"{safe_name}_{context}_{datetime.utcnow().strftime('%Y%m%dT%H%M%S%f')}.ecsv")
+        output_path = horizons_dir / (
+            f"{safe_name}_{context}_{datetime.utcnow().strftime('%Y%m%dT%H%M%S%f')}.ecsv"
+        )
         eph.write(output_path, format="ascii.ecsv", overwrite=True)
         logger.debug(
-             "Saved raw Horizons output for %s (%s) to %s",
-             body_name,
-             context,
-             output_path,
-         )
+            "Saved raw Horizons output for %s (%s) to %s",
+            body_name,
+            context,
+            output_path,
+        )
     except BaseException as exc:
         logger.debug(
             "Failed to save raw Horizons output for %s (%s): %s",
@@ -352,7 +354,11 @@ def clean_image(data: np.ndarray) -> np.ndarray:
 
 ## planet or SIMBAD positions
 def get_body_coordinates(
-    body_name: str, obs_time: Time, obs_location: EarthLocation, tle: str = None, near: bool = False
+    body_name: str,
+    obs_time: Time,
+    obs_location: EarthLocation,
+    tle: str = None,
+    near: bool = False,
 ) -> SkyCoord:
     """Get the position of a celestial body (Solar System or Deep Sky).
 
@@ -372,19 +378,40 @@ def get_body_coordinates(
     if body_name.lower() in _SOLAR_SYSTEM_BODIES:
         return get_body(body_name, obs_time, obs_location)
     elif near and tle is None:
-        location = {'lon': obs_location.lon.deg, 'lat': obs_location.lat.deg, 'elevation': obs_location.height.to(u.km).value}
+        location = {
+            "lon": obs_location.lon.deg,
+            "lat": obs_location.lat.deg,
+            "elevation": obs_location.height.to(u.km).value,
+        }
         call_input = {"id": body_name, "location": location, "epochs": obs_time.jd}
         obj = Horizons(**call_input)
         eph = obj.ephemerides()
-        _save_and_log_horizons_output(body_name, "get_body_coordinates", eph, call_input)
-        return SkyCoord(ra=eph["RA"].data * u.deg, dec=eph["DEC"].data * u.deg, obstime=obs_time).transform_to('gcrs')[0]
+        _save_and_log_horizons_output(
+            body_name, "get_body_coordinates", eph, call_input
+        )
+        return SkyCoord(
+            ra=eph["RA"].data * u.deg, dec=eph["DEC"].data * u.deg, obstime=obs_time
+        ).transform_to("gcrs")[0]
     elif near:
-        location = {'lon': obs_location.lon.deg, 'lat': obs_location.lat.deg, 'elevation': obs_location.height.to(u.km).value}
-        call_input = {"id": "TLE", "location": location, "epochs": obs_time.jd, "optional_settings": {"TLE": tle}}
-        obj = Horizons(id='TLE', location=location, epochs=obs_time.jd)
+        location = {
+            "lon": obs_location.lon.deg,
+            "lat": obs_location.lat.deg,
+            "elevation": obs_location.height.to(u.km).value,
+        }
+        call_input = {
+            "id": "TLE",
+            "location": location,
+            "epochs": obs_time.jd,
+            "optional_settings": {"TLE": tle},
+        }
+        obj = Horizons(id="TLE", location=location, epochs=obs_time.jd)
         eph = obj.ephemerides(optional_settings={"TLE": tle})
-        _save_and_log_horizons_output(body_name, "get_body_coordinates", eph, call_input)
-        return SkyCoord(ra=eph["RA"].data * u.deg, dec=eph["DEC"].data * u.deg, obstime=obs_time).transform_to('gcrs')[0]
+        _save_and_log_horizons_output(
+            body_name, "get_body_coordinates", eph, call_input
+        )
+        return SkyCoord(
+            ra=eph["RA"].data * u.deg, dec=eph["DEC"].data * u.deg, obstime=obs_time
+        ).transform_to("gcrs")[0]
 
     # Otherwise, try to resolve as a deep sky object (ICRS)
     return SkyCoord.from_name(body_name)
@@ -406,7 +433,10 @@ def precompute_ephemeris(
     interval_minutes: float = 1.0,
     tle_data: str | None = None,
     return_rates: bool = False,
-) -> tuple["interp1d", "interp1d"] | tuple["interp1d", "interp1d", "interp1d", "interp1d"]:
+) -> (
+    tuple["interp1d", "interp1d"]
+    | tuple["interp1d", "interp1d", "interp1d", "interp1d"]
+):
     """Pre-compute a moving body's sky positions over a time window.
 
     Performs a single vectorised get_body() call and returns cubic interpolation
@@ -482,7 +512,7 @@ def precompute_ephemeris(
                 "stop": stop_time.iso,
                 "step": str(n_points - 1),  # Horizons returns n+1 rows for n steps
             }
-            
+
             # Handle TLE data
             if body_name.upper() == "TLE" or tle_data is not None:
                 if tle_data is None:
@@ -495,14 +525,16 @@ def precompute_ephemeris(
                     "epochs": epochs,
                     "optional_settings": {"TLE": tle_data},
                 }
-                obj = Horizons(id='TLE', location=location, epochs=epochs)
+                obj = Horizons(id="TLE", location=location, epochs=epochs)
                 eph = obj.ephemerides(optional_settings={"TLE": tle_data})
             else:
                 call_input = {"id": body_name, "location": location, "epochs": epochs}
                 obj = Horizons(id=body_name, location=location, epochs=epochs)
                 eph = obj.ephemerides()
-            _save_and_log_horizons_output(body_name, "precompute_ephemeris", eph, call_input)
-                
+            _save_and_log_horizons_output(
+                body_name, "precompute_ephemeris", eph, call_input
+            )
+
             bodies = SkyCoord(ra=eph["RA"].data * u.deg, dec=eph["DEC"].data * u.deg)
             seconds = (Time(eph["datetime_jd"], format="jd") - start_time).to(u.s).value
             if "RA_rate" in eph.colnames and "DEC_rate" in eph.colnames:
@@ -525,8 +557,18 @@ def precompute_ephemeris(
         return ra_interp, dec_interp
 
     if ra_rate_as_per_hour is not None and dec_rate_as_per_hour is not None:
-        # Horizons rates are in arcsec/hour (solar seconds). Convert to ASCOM units.
-        ra_rates = (ra_rate_as_per_hour / (15.0 * 3600.0)) / _SOLAR_TO_SIDEREAL
+        # Horizons RA_rate is dRA*cos(D) in arcsec/hr — the angular velocity projected
+        # onto the sky, not the RA coordinate rate.  Divide by cos(Dec) to recover
+        # d(RA_coord)/dt before converting to ASCOM RightAscensionRate units
+        # (seconds of RA per sidereal second).  Without this factor the mount tracks at
+        # cos(Dec) of the required rate, causing steady RA drift between recenters that
+        # manifests as a visible jump when each recenter slew corrects the error.
+        cos_dec = np.cos(np.radians(dec_coords))
+        # Guard against division by zero within ~0.003° of the celestial poles.
+        cos_dec = np.where(np.abs(cos_dec) < 5e-5, 5e-5, cos_dec)
+        ra_rates = (
+            ra_rate_as_per_hour / (15.0 * 3600.0 * cos_dec)
+        ) / _SOLAR_TO_SIDEREAL
         dec_rates = (dec_rate_as_per_hour / 3600.0) / _SOLAR_TO_SIDEREAL
     else:
         # Fallback for astropy bodies: derive rates from sampled sky positions.
