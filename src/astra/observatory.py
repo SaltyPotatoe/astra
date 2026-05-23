@@ -65,10 +65,10 @@ from astra.logger import (
     FileHandler,
     ObservatoryLogger,
 )
+from astra.nonsidereal import NonSiderealManager
 from astra.paired_devices import PairedDevices
 from astra.pointer import calculate_pointing_correction_from_fits
 from astra.queue_manager import QueueManager
-from astra.nonsidereal import NonSiderealManager
 from astra.safety_monitor import SafetyMonitor
 from astra.scheduler import Action, BaseActionConfig, ScheduleManager
 from astra.thread_manager import ThreadManager
@@ -1388,6 +1388,8 @@ class Observatory:
         Parameters:
             action (Action): An Action object containing information about the action to be performed.
             paired_devices (dict): A list of paired devices required for the sequence.
+            near (bool, optional): If True, use JPL Horizons for near-Earth objects or TLEs. Defaults to False.
+            slew_target_radec_deg (tuple[float, float] | None, optional): The target RA/Dec coordinates for slewing the telescope, in degrees. Defaults to None.
         """
         if not isinstance(paired_devices, PairedDevices):
             paired_devices = PairedDevices.from_observatory(
@@ -1480,6 +1482,8 @@ class Observatory:
             paired_devices (dict): A dictionary specifying paired devices for the sequence.
             action_value (dict): A dictionary containing information about the action to be performed.
             filter_list_index (int, optional): The index of the filter in the filter list (default is 0).
+            near (bool, optional): If True, use JPL Horizons for near-Earth objects or TLEs.
+            slew_target_radec_deg (tuple[float, float] | None, optional): The target RA/Dec coordinates for slewing the telescope.
 
         This method prepares the observatory for a sequence by performing the following steps:
 
@@ -1530,7 +1534,7 @@ class Observatory:
                     obs_time=now,
                     obs_location=obs_location,
                     tle=action_value.get("tle"),
-                    near=near
+                    near=near,
                 )
 
                 ra = target_coord.ra.deg  # type: ignore
@@ -2305,7 +2309,7 @@ class Observatory:
         self.pre_sequence(
             action,
             paired_devices,
-            near=nonsidereal.is_active,
+            near=nonsidereal.is_active,  # not sure I like the 'near' terminology - PPP
             slew_target_radec_deg=nonsidereal_prepoint,
         )
 

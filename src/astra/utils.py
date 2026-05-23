@@ -16,7 +16,7 @@ Key capabilities:
 import logging
 import math
 import time
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any, Tuple
 
 import astropy.units as u
@@ -63,7 +63,7 @@ def _save_and_log_horizons_output(
         horizons_dir.mkdir(parents=True, exist_ok=True)
         safe_name = body_name.replace(" ", "_").replace("/", "_")
         output_path = horizons_dir / (
-            f"{safe_name}_{context}_{datetime.utcnow().strftime('%Y%m%dT%H%M%S%f')}.ecsv"
+            f"{safe_name}_{context}_{datetime.now(UTC).strftime('%Y%m%dT%H%M%S%f')}.ecsv"
         )
         eph.write(output_path, format="ascii.ecsv", overwrite=True)
         logger.debug(
@@ -369,6 +369,8 @@ def get_body_coordinates(
         body_name (str): Name of the body (e.g., 'mars', 'jupiter', 'M31', 'Vega').
         obs_time (Time): Observation time (used for solar system bodies).
         obs_location (EarthLocation): Observer's geographic location (used for solar system bodies).
+        tle (str, optional): Two-line element set for satellites. Required if body_name is 'TLE'.
+        near (bool, optional): If True, use JPL Horizons for near-Earth objects or TLEs.
 
     Returns:
         SkyCoord: Position of the body in the sky.
