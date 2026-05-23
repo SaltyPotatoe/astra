@@ -13,8 +13,8 @@ Key capabilities:
     - SPECULOOS telescope error checking and acknowledgement
 """
 
-import math
 import logging
+import math
 import time
 from datetime import datetime
 from typing import Any, Tuple
