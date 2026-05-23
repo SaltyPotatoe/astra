@@ -494,11 +494,11 @@ class ObjectActionConfig(BaseActionConfig):
         ``nonsidereal_recenter_interval``. The interval controls how often the
         telescope re-slews to the updated ephemeris position (in seconds).
         Autoguiding is incompatible with non-sidereal tracking and will be disabled.
-        If using TLE's for Earth-orbiting objects, provide the ``tle`` and use 
+        If using TLE's for Earth-orbiting objects, provide the ``tle`` and use
         "TLE" as the ``lookup_name``.
 
-        Currently supports astropy built-in bodies (planets, Moon, Sun) and small 
-        bodies (asteroids, comets) that have ephemerides in JPL Horizons, and 
+        Currently supports astropy built-in bodies (planets, Moon, Sun) and small
+        bodies (asteroids, comets) that have ephemerides in JPL Horizons, and
         Earth-orbiting objects through TLEs.
 
         **Schedule example for tracking Saturn**::
@@ -658,7 +658,7 @@ class ObjectActionConfig(BaseActionConfig):
             (ra_deg, dec_deg) at start_time.
         """
         duration_hours = (end_time - start_time).to_value("hr") + 0.5
-        if (self.nonsidereal_recenter_interval == 0):
+        if self.nonsidereal_recenter_interval == 0:
             self.nonsidereal_recenter_interval = duration_hours * 3600
         try:
             (
@@ -745,13 +745,6 @@ class ObjectActionConfig(BaseActionConfig):
         if ra is None or dec is None:
             return
 
-        # Create target coordinate
-        target = SkyCoord(
-            ra=u.Quantity(ra, "deg"),
-            dec=u.Quantity(dec, "deg"),
-            frame="icrs",
-        )
-
         # Check times: start, middle, end
         mid_time = Time(
             (start_time.unix + end_time.unix) / 2,
@@ -766,6 +759,29 @@ class ObjectActionConfig(BaseActionConfig):
         visibility_issues = []
 
         for label, check_time in check_times:
+            # For non-sidereal targets, query the ephemeris interpolators at each
+            # check time so that the object's actual position is used rather than
+            # its start-time coordinates.
+            if (
+                self._nonsidereal
+                and self._ra_interp is not None
+                and self._dec_interp is not None
+            ):
+                elapsed_s = check_time.unix - start_time.unix
+                check_ra = float(self._ra_interp(elapsed_s)) % 360.0
+                check_dec = float(self._dec_interp(elapsed_s))
+                target = SkyCoord(
+                    ra=u.Quantity(check_ra, "deg"),
+                    dec=u.Quantity(check_dec, "deg"),
+                    frame="icrs",
+                )
+            else:
+                target = SkyCoord(
+                    ra=u.Quantity(ra, "deg"),
+                    dec=u.Quantity(dec, "deg"),
+                    frame="icrs",
+                )
+
             # Transform to horizontal coordinates
             altaz_frame = AltAz(obstime=check_time, location=observatory_location)
             target_altaz = target.transform_to(altaz_frame)
@@ -778,8 +794,13 @@ class ObjectActionConfig(BaseActionConfig):
                 )
 
         if visibility_issues:
+            coord_str = (
+                f"(non-sidereal, lookup_name='{self.lookup_name}')"
+                if self._nonsidereal
+                else f"at RA={ra:.2f}°, Dec={dec:.2f}°"
+            )
             raise ValueError(
-                f"Target '{self.object}' at RA={ra:.2f}°, Dec={dec:.2f}° "
+                f"Target '{self.object}' {coord_str} "
                 f"is not visible during observation window:\n  "
                 + "\n  ".join(visibility_issues)
             )
