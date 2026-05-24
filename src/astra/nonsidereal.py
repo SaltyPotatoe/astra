@@ -38,6 +38,13 @@ from astra.scheduler import Action
 
 __all__ = ["NonSiderealManager"]
 
+# Skip pushing new rates to the mount when both axes change by less than this
+# fraction of the previously applied rate. Reduces ASCOM chatter on near-stable
+# tracks. The absolute floor below catches the near-zero-rate case where a
+# percentage threshold is meaningless.
+_RATE_CHANGE_THRESHOLD_FRACTION = 0.001  # 0.1%
+_RATE_ABSOLUTE_FLOOR = 1e-6  # arcsec/s — below this, treat as "no meaningful change"
+
 
 @dataclass
 class _NonSiderealState:
@@ -61,6 +68,8 @@ class _NonSiderealState:
     sequence_start_time: Time
     recenter_interval: int
     last_recenter_time: float = field(default_factory=time.time)
+    last_applied_ra_rate: float | None = None
+    last_applied_dec_rate: float | None = None
 
 
 class NonSiderealManager:
@@ -169,6 +178,10 @@ class NonSiderealManager:
             )
             time.sleep(1)
             wait_for_slew_fn(paired_devices)
+            # Force the post-slew rate push regardless of delta — the mount has
+            # just moved and we want a known-good rate applied immediately.
+            state.last_applied_ra_rate = None
+            state.last_applied_dec_rate = None
             self._apply_rates(telescope, state)
             state.last_recenter_time = time.time()
             return True
@@ -188,6 +201,8 @@ class NonSiderealManager:
         try:
             telescope.set("RightAscensionRate", 0.0)
             telescope.set("DeclinationRate", 0.0)
+            self._state.last_applied_ra_rate = None
+            self._state.last_applied_dec_rate = None
             self.logger.info("Non-sidereal tracking rates reset to zero")
         except Exception as e:
             self.logger.warning(f"Could not reset non-sidereal tracking rates: {e}")
@@ -241,7 +256,13 @@ class NonSiderealManager:
         )
 
     def _apply_rates(self, telescope: AlpacaDevice, state: _NonSiderealState) -> None:
-        """Set ASCOM RightAscensionRate / DeclinationRate from the interpolated ephemeris."""
+        """Set ASCOM RightAscensionRate / DeclinationRate from the interpolated ephemeris.
+
+        Skips the telescope set calls when both axes change by less than
+        ``_RATE_CHANGE_THRESHOLD_FRACTION`` (and the absolute delta is below
+        ``_RATE_ABSOLUTE_FLOOR``) relative to the previously applied rates, to
+        avoid spamming the mount with negligible adjustments.
+        """
         try:
             t_seconds = (Time.now() - state.sequence_start_time).to(u.s).value
             if state.ra_rate_interp is not None and state.dec_rate_interp is not None:
@@ -251,8 +272,20 @@ class NonSiderealManager:
                 ra_rate, dec_rate = astra.utils.compute_nonsidereal_rates_from_interp(
                     state.ra_interp, state.dec_interp, t_seconds
                 )
+
+            if self._rate_change_negligible(
+                state.last_applied_ra_rate, ra_rate
+            ) and self._rate_change_negligible(state.last_applied_dec_rate, dec_rate):
+                self.logger.debug(
+                    f"Non-sidereal rate change below threshold; skipping mount update "
+                    f"(dRA={ra_rate:.6f} s/s, dDec={dec_rate:.6f} as/s)"
+                )
+                return
+
             telescope.set("RightAscensionRate", ra_rate)
             telescope.set("DeclinationRate", dec_rate)
+            state.last_applied_ra_rate = ra_rate
+            state.last_applied_dec_rate = dec_rate
             self.logger.info(
                 f"Non-sidereal tracking rates: dRA={ra_rate:.6f} s/s, dDec={dec_rate:.6f} as/s"
             )
@@ -265,3 +298,20 @@ class NonSiderealManager:
                 )
             else:
                 self.logger.warning(f"Could not set non-sidereal tracking rates: {e}")
+
+    @staticmethod
+    def _rate_change_negligible(prev: float | None, new: float) -> bool:
+        """Return True if ``new`` is close enough to ``prev`` to skip pushing it.
+
+        First call (prev is None) always returns False so the initial rate is
+        applied. The absolute floor guards against the case where ``prev`` is
+        near zero and the percentage delta blows up.
+        """
+        if prev is None:
+            return False
+        abs_delta = abs(new - prev)
+        if abs_delta < _RATE_ABSOLUTE_FLOOR:
+            return True
+        if prev == 0:
+            return False
+        return abs_delta / abs(prev) < _RATE_CHANGE_THRESHOLD_FRACTION
