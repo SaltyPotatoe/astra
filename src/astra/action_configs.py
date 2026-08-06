@@ -624,7 +624,7 @@ class ObjectActionConfig(BaseActionConfig):
         # Try to resolve coordinates if RA/Dec are not explicitly provided
         if ra is None or dec is None:
             if self.lookup_name is not None:
-                from astra.utils import get_body_coordinates
+                from astra.utils.ephemeris import get_body_coordinates
 
                 # Resolve body position at start time
                 target_coord = get_body_coordinates(
@@ -1041,6 +1041,15 @@ class AutofocusConfig(BaseActionConfig):
         4. Measure star sharpness in each image
         5. Fit a curve to determine optimal focus
         6. Save plots/results and save the best focus position in the observatory configuration
+
+    Note:
+        Coarse searches (for example `fft`, `normalized_variance`) use non-parametric
+        focus measures that characterise overall frame sharpness and are well suited
+        for very broad search ranges where stars appear as large, defocused "donuts".
+        Analytic response-function autofocusers (for example `HFR`/StarSize), which fit
+        a V-curve to measured star sizes, are better for fine-tuning near the focus
+        peak but can give incorrect results if applied over an excessively large range
+        because the assumed response model may not fit across the whole span.
     """
 
     exptime: float | int = field(default=3.0)
@@ -1053,7 +1062,7 @@ class AutofocusConfig(BaseActionConfig):
     n_exposures: List[int] | int = field(default_factory=lambda: [1, 1])
     decrease_search_range: bool = True
     star_find_threshold: float | int = 5.0
-    fwhm: int = 8
+    fwhm: Optional[int] = None
     percent_to_cut: int = 60
     focus_measure_operator: str = "HFR"
     save: bool = True
@@ -1092,9 +1101,16 @@ class AutofocusConfig(BaseActionConfig):
         ),
         "decrease_search_range": "Reduce the search range after each sweep.",
         "star_find_threshold": "DAOStarFinder threshold for star detection.",
-        "fwhm": "DAOStarFinder FWHM of the Gaussian kernel in pixels.",
+        "fwhm": (
+            "DAOStarFinder FWHM of the Gaussian kernel in pixels. If not set, derived "
+            'from the camera/telescope plate scale assuming ~2" seeing.'
+        ),
         "percent_to_cut": "Percentage of worst-performing focus samples to drop when shrinking the range.",
         "focus_measure_operator": "Focus metric to optimize (e.g., hfr, gauss, tenengrad, fft, normalized_variance).",
+        "focus_measure_operator_note": (
+            "Prefer non-parametric metrics (e.g., 'fft', 'normalized_variance') for coarse/broad searches; "
+            "use analytic measures (e.g., 'HFR') for fine tuning near the focus peak."
+        ),
         "reduce_exposure_time": "Automatically shorten exposures to prevent saturation.",
         "save": "Persist the optimal focus position back into observatory configuration.",
         "extremum_estimator": "Curve-fitting method used to determine the minimum (LOWESS, medianfilter, spline, rbf).",
@@ -1113,6 +1129,7 @@ class AutofocusConfig(BaseActionConfig):
         "action_value": {
             "exptime": 1.0,
             "filter": "V",
+            "focus_measure_operator": "HFR",
             "search_range_is_relative": True,
             "search_range": 1000,
             "n_steps": [30, 20],

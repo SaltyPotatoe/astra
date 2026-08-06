@@ -49,7 +49,6 @@ from astropy.io import fits
 from astropy.time import Time
 from astropy.wcs.utils import WCS
 
-import astra.utils
 from astra.alpaca_device_process import AlpacaDevice
 from astra.autofocus import Autofocuser, Defocuser
 from astra.calibrate_guiding import GuidingCalibrator
@@ -70,6 +69,7 @@ from astra.queue_manager import QueueManager
 from astra.safety_monitor import SafetyMonitor
 from astra.scheduler import Action, BaseActionConfig, ScheduleManager
 from astra.thread_manager import ThreadManager
+from astra.utils import ephemeris
 
 logging.getLogger("sqlite3worker").setLevel(logging.INFO)
 
@@ -183,6 +183,8 @@ class Observatory:
         # log start up
         self.logger.debug("Database and DatabaseLoggingHandler initialized")
         self.logger.info(f"Starting observatory {self.name}")
+        if type(self) is not Observatory:
+            self.logger.info(f"Using observatory subclass: {type(self).__name__}")
 
         # warn if debug mode
         if self.logger.getEffectiveLevel() == logging.DEBUG:
@@ -1512,7 +1514,7 @@ class Observatory:
                 now = Time.now()
 
                 # Get body coordinates
-                target_coord = astra.utils.get_body_coordinates(
+                target_coord = ephemeris.get_body_coordinates(
                     body_name=lookup_name,
                     obs_time=now,
                     obs_location=obs_location,
@@ -2860,11 +2862,17 @@ class Observatory:
             if not self.check_conditions(action=action):
                 return False
 
-            autofocuser = Autofocuser(
-                observatory=self,
-                action=action,
-                paired_devices=paired_devices,
-            )
+            try:
+                autofocuser = Autofocuser(
+                    observatory=self,
+                    action=action,
+                    paired_devices=paired_devices,
+                )
+            except Exception as e:
+                self.logger.warning(
+                    f"Autofocuser initialization failed for {action.device_name}: {e}"
+                )
+                return False
             autofocuser.determine_autofocus_calibration_field()
             autofocuser.slew_to_calibration_field()
             autofocuser.setup()
@@ -2951,7 +2959,7 @@ class Observatory:
         ).get_observatory_location()
 
         # wait for sun to be in right position
-        sun_rising, take_flats, sun_altaz = astra.utils.is_sun_rising(obs_location)
+        sun_rising, take_flats, sun_altaz = ephemeris.is_sun_rising(obs_location)
         self.logger.info(
             f"Sun at {sun_altaz.alt.degree:.2f} degrees and {'rising' if sun_rising else 'setting'}"
         )
@@ -2981,7 +2989,7 @@ class Observatory:
             )
 
         while self.check_conditions(action) and (take_flats is False):
-            sun_rising, take_flats, sun_altaz = astra.utils.is_sun_rising(obs_location)
+            sun_rising, take_flats, sun_altaz = ephemeris.is_sun_rising(obs_location)
 
             if take_flats is False:
                 time.sleep(1)
@@ -2998,7 +3006,7 @@ class Observatory:
         # start taking flats
         for i, filter_name in enumerate(action.action_value["filter"]):
             count = 0
-            sun_rising, take_flats, sun_altaz = astra.utils.is_sun_rising(obs_location)
+            sun_rising, take_flats, sun_altaz = ephemeris.is_sun_rising(obs_location)
 
             if self.check_conditions(action) and take_flats:
                 ## initial setup + exposure setting
@@ -3156,7 +3164,7 @@ class Observatory:
             # check if ready to take flats
             take_flats = False
             while self.check_conditions(action) and (take_flats is False):
-                _, take_flats, sun_altaz = astra.utils.is_sun_rising(obs_location)
+                _, take_flats, sun_altaz = ephemeris.is_sun_rising(obs_location)
 
                 if take_flats is False:
                     time.sleep(1)
@@ -3227,7 +3235,7 @@ class Observatory:
 
         """
 
-        sun_rising, take_flats, sun_altaz = astra.utils.is_sun_rising(obs_location)
+        sun_rising, take_flats, sun_altaz = ephemeris.is_sun_rising(obs_location)
 
         # initial exposure time guess
         if exptime is None:
@@ -3284,7 +3292,7 @@ class Observatory:
                         if fraction <= 0:
                             fraction = 0.01
 
-                    sun_rising, take_flats, sun_altaz = astra.utils.is_sun_rising(
+                    sun_rising, take_flats, sun_altaz = ephemeris.is_sun_rising(
                         obs_location
                     )
 
