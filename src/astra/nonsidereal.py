@@ -164,10 +164,15 @@ class NonSiderealManager:
 
         state = self._state
         try:
+            telescope = paired_devices.telescope
+            # TODO: Check dome open
+
+            settle = telescope.get("SlewSettleTime") or 0
+
+            # Coarse slew to the satellite's current position.
             t_seconds = (Time.now() - state.sequence_start_time).to(u.s).value
             ra_deg = float(state.ra_interp(t_seconds)) % 360.0  # unwrap → [0, 360)
             dec_deg = float(state.dec_interp(t_seconds))
-            telescope = paired_devices.telescope
             self.logger.info(
                 f"Re-centering on {state.body_name} at RA={ra_deg:.3f}°, Dec={dec_deg:.3f}°"
             )
@@ -176,8 +181,27 @@ class NonSiderealManager:
                 RightAscension=ra_deg / 15.0,  # ASCOM expects RA in hours [0, 24)
                 Declination=dec_deg,
             )
-            time.sleep(1)
+            if settle:
+                time.sleep(settle)
             wait_for_slew_fn(paired_devices)
+
+            # Fine correction: the satellite moved during the coarse slew. Re-target
+            # the current position so the offset isn't locked in by the tracking rates.
+            t_seconds = (Time.now() - state.sequence_start_time).to(u.s).value
+            ra_deg = float(state.ra_interp(t_seconds)) % 360.0
+            dec_deg = float(state.dec_interp(t_seconds))
+            self.logger.debug(
+                f"Re-centering correction on {state.body_name} at RA={ra_deg:.3f}°, Dec={dec_deg:.3f}°"
+            )
+            telescope.get(
+                "SlewToCoordinatesAsync",
+                RightAscension=ra_deg / 15.0,
+                Declination=dec_deg,
+            )
+            if settle:
+                time.sleep(settle)
+            wait_for_slew_fn(paired_devices)
+
             # Force the post-slew rate push regardless of delta — the mount has
             # just moved and we want a known-good rate applied immediately.
             state.last_applied_ra_rate = None
@@ -307,6 +331,7 @@ class NonSiderealManager:
         applied. The absolute floor guards against the case where ``prev`` is
         near zero and the percentage delta blows up.
         """
+        # TODO: Define better, physically motivated threshold
         if prev is None:
             return False
         abs_delta = abs(new - prev)

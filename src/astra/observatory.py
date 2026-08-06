@@ -1374,8 +1374,7 @@ class Observatory:
         self,
         action: Action,
         paired_devices: dict | PairedDevices,
-        near: bool = False,
-        slew_target_radec_deg: tuple[float, float] | None = None,
+        nonsidereal: "NonSiderealManager | None" = None,
     ) -> None:
         """
         Prepare the observatory and metadata for a sequence.
@@ -1388,8 +1387,8 @@ class Observatory:
         Parameters:
             action (Action): An Action object containing information about the action to be performed.
             paired_devices (dict): A list of paired devices required for the sequence.
-            near (bool, optional): If True, use JPL Horizons for near-Earth objects or TLEs. Defaults to False.
-            slew_target_radec_deg (tuple[float, float] | None, optional): The target RA/Dec coordinates for slewing the telescope, in degrees. Defaults to None.
+            nonsidereal (NonSiderealManager | None): Active non-sidereal manager for the sequence,
+                or None for standard sidereal observations.
         """
         if not isinstance(paired_devices, PairedDevices):
             paired_devices = PairedDevices.from_observatory(
@@ -1403,8 +1402,7 @@ class Observatory:
         self.setup_observatory(
             paired_devices,
             action.action_value,
-            near=near,
-            slew_target_radec_deg=slew_target_radec_deg,
+            nonsidereal=nonsidereal,
         )
 
         # Create image handler
@@ -1472,35 +1470,9 @@ class Observatory:
         paired_devices: PairedDevices | dict,
         action_value: BaseActionConfig,
         filter_list_index: int = 0,
-        near: bool = False,
-        slew_target_radec_deg: tuple[float, float] | None = None,
+        nonsidereal: "NonSiderealManager | None" = None,
     ) -> None:
-        """
-        Prepares the observatory for a sequence by performing necessary setup actions.
-
-        Parameters:
-            paired_devices (dict): A dictionary specifying paired devices for the sequence.
-            action_value (dict): A dictionary containing information about the action to be performed.
-            filter_list_index (int, optional): The index of the filter in the filter list (default is 0).
-            near (bool, optional): If True, use JPL Horizons for near-Earth objects or TLEs.
-            slew_target_radec_deg (tuple[float, float] | None, optional): The target RA/Dec coordinates for slewing the telescope.
-
-        This method prepares the observatory for a sequence by performing the following steps:
-
-        If the action value contains 'ra' and 'dec' keys, it will:
-            1. open_observatory(paired_devices)
-            2. Set telescope tracking to true
-            3. Slew telescope to the specified target coordinates.
-
-        If the action value contains 'filter' key, it will:
-            1. Setting the filter wheel to the specified filter position.
-
-        Notes:
-            - This method relies on certain conditions like weather safety, error-free operation, and no interruptions.
-            - The 'paired_devices' dictionary should specify devices required for the sequence.
-
-        """
-
+        """Prepare the observatory for a sequence: slew, filter, focus, camera."""
         self.logger.debug(
             f"Running setup_observatory for {paired_devices} {action_value}"
         )
@@ -1511,236 +1483,230 @@ class Observatory:
                 paired_device_names=paired_devices,
             )
 
-        # Convert alt/az to ra/dec if needed (validation already done in action config)
+        slew_ra, slew_dec = self._resolve_slew_target(
+            paired_devices, action_value, nonsidereal
+        )
+        if (
+            slew_ra is not None
+            and slew_dec is not None
+            and not action_value.get("disable_telescope_movement", False)
+        ):
+            self._execute_slew(paired_devices, slew_ra, slew_dec)
+
+        filter_focus_shift = self._configure_filter(
+            paired_devices, action_value, filter_list_index
+        )
+        self._configure_focuser(paired_devices, action_value, filter_focus_shift)
+        self._configure_camera(paired_devices, action_value)
+
+    def _resolve_slew_target(
+        self,
+        paired_devices: PairedDevices,
+        action_value: BaseActionConfig,
+        nonsidereal: "NonSiderealManager | None",
+    ) -> tuple[float | None, float | None]:
+        """Return (ra_deg, dec_deg) for the slew, resolving from action_value if needed.
+
+        When a non-sidereal manager is active its pre-point coordinates are used
+        directly, bypassing the sidereal lookup_name resolution.
+        """
+        if nonsidereal is not None and nonsidereal.is_active:
+            lead_seconds = float(
+                action_value.get("nonsidereal_start_lead_time_seconds", 60.0)
+            )
+            return nonsidereal.prepoint_coordinates(lead_seconds)
+
         ra = action_value.get("ra")
         dec = action_value.get("dec")
+        lookup_name = action_value.get("lookup_name")
         alt = action_value.get("alt")
         az = action_value.get("az")
-        lookup_name = action_value.get("lookup_name")
 
-        # If body provided, get ra/dec
-        if lookup_name is not None:
-            if "Telescope" in paired_devices:
-                # Get observatory location from telescope (cached)
-                telescope_name = paired_devices["Telescope"]
-                obs_location = self.get_observatory_location(telescope_name)
+        if lookup_name is not None and "Telescope" in paired_devices:
+            obs_location = self.get_observatory_location(paired_devices["Telescope"])
+            target_coord = astra.utils.get_body_coordinates(
+                body_name=lookup_name,
+                obs_time=Time.now(),
+                obs_location=obs_location,
+                tle=action_value.get("tle"),
+                nonsidereal_target=False,
+            )
+            ra = target_coord.ra.deg  # type: ignore
+            dec = target_coord.dec.deg  # type: ignore
+            self.logger.info(
+                f"Retrieved {lookup_name} coordinates RA/Dec ({ra:.2f}°, {dec:.2f}°)"
+            )
 
-                # Get current time
-                now = Time.now()
+        if alt is not None and az is not None and "Telescope" in paired_devices:
+            obs_location = self.get_observatory_location(paired_devices["Telescope"])
+            target_altaz = SkyCoord(
+                alt=u.Quantity(alt, u.deg),
+                az=u.Quantity(az, u.deg),
+                frame=AltAz(obstime=Time.now(), location=obs_location),
+            )
+            target_radec = target_altaz.transform_to("icrs")
+            ra = target_radec.ra.deg  # type: ignore
+            dec = target_radec.dec.deg  # type: ignore
+            self.logger.info(
+                f"Converted Alt/Az ({alt:.2f}°, {az:.2f}°) to RA/Dec ({ra:.2f}°, {dec:.2f}°)"
+            )
 
-                # Get body coordinates
-                target_coord = astra.utils.get_body_coordinates(
-                    body_name=lookup_name,
-                    obs_time=now,
-                    obs_location=obs_location,
-                    tle=action_value.get("tle"),
-                    near=near,
-                )
+        return ra, dec
 
-                ra = target_coord.ra.deg  # type: ignore
-                dec = target_coord.dec.deg  # type: ignore
+    def _execute_slew(
+        self,
+        paired_devices: PairedDevices,
+        ra_deg: float,
+        dec_deg: float,
+    ) -> None:
+        """Open observatory, enable tracking, slew to (ra_deg, dec_deg), and wait."""
+        if "Telescope" not in paired_devices or not self.check_conditions():
+            return
 
-                self.logger.info(
-                    f"Retrieved {lookup_name} coordinates RA/Dec ({ra:.2f}°, {dec:.2f}°)"
-                )
+        self.open_observatory(paired_devices)
 
-        # If alt/az provided, convert to ra/dec
-        if alt is not None and az is not None:
-            if "Telescope" in paired_devices:
-                # Get observatory location from telescope (cached)
-                telescope_name = paired_devices["Telescope"]
-                obs_location = self.get_observatory_location(telescope_name)
+        telescope = paired_devices.telescope
+        telescope_name = paired_devices["Telescope"]
 
-                # Create AltAz coordinate
-                target_altaz = SkyCoord(
-                    alt=u.Quantity(alt, u.deg),
-                    az=u.Quantity(az, u.deg),
-                    frame=AltAz(obstime=Time.now(), location=obs_location),
-                )
+        if not self.check_conditions():
+            return
 
-                # Transform to ICRS (RA/Dec) - results in degrees
-                target_radec = target_altaz.transform_to("icrs")
+        self.execute_and_monitor_device_task(
+            "Telescope",
+            "Tracking",
+            True,
+            "Tracking",
+            device_name=telescope_name,
+            log_message=f"Setting Telescope {telescope_name} tracking to True",
+        )
 
-                ra = target_radec.ra.deg  # type: ignore
-                dec = target_radec.dec.deg  # type: ignore
+        self.logger.info(
+            f"Slewing Telescope {telescope_name} to RA/Dec {ra_deg:.2f}°/{dec_deg:.2f}°"
+        )
+        telescope.get(
+            "SlewToCoordinatesAsync",
+            RightAscension=ra_deg / 15.0,
+            Declination=dec_deg,
+        )
+        settle = telescope.get("SlewSettleTime") or 0
+        if settle:
+            time.sleep(settle)
+        self.wait_for_slew(paired_devices)
 
-                self.logger.info(
-                    f"Converted Alt/Az ({alt:.2f}°, {az:.2f}°) to RA/Dec ({ra:.2f}°, {dec:.2f}°)"
-                )
-
-        slew_ra = ra
-        slew_dec = dec
-        if slew_target_radec_deg is not None:
-            slew_ra, slew_dec = slew_target_radec_deg
-
-        # Slew to target coordinates, open observatory if needed
+    def _configure_filter(
+        self,
+        paired_devices: PairedDevices,
+        action_value: BaseActionConfig,
+        filter_list_index: int,
+    ) -> float:
+        """Set the filter wheel position. Returns the filter's focus offset."""
         if (
-            (slew_ra is not None)
-            and (slew_dec is not None)
-            and (action_value.get("disable_telescope_movement", False) is False)
-            and self.check_conditions()
+            action_value.get("filter") is None
+            or "FilterWheel" not in paired_devices
+            or not self.logger.error_free
         ):
-            if "Telescope" in paired_devices:
-                self.open_observatory(paired_devices)
+            return 0
 
-                telescope = paired_devices.telescope
-                telescope_name = paired_devices["Telescope"]
+        f = action_value["filter"]
+        if isinstance(f, list):
+            f = f[filter_list_index]
 
-                if self.check_conditions():
-                    # set tracking to true
-                    self.execute_and_monitor_device_task(
-                        "Telescope",
-                        "Tracking",
-                        True,
-                        "Tracking",
-                        device_name=telescope_name,
-                        log_message=f"Setting Telescope {telescope_name} tracking to True",
-                    )
+        filter_wheel = paired_devices.filter_wheel
+        names = filter_wheel.get("Names")
+        if f not in names:
+            raise ValueError(f"Filter {f} not found in {names}")
 
-                    # slew to target
-                    # Convert RA from degrees to hours (RA in deg / 360 * 24 = RA in hours)
-                    ra_hours = (
-                        slew_ra / 15.0
-                    )  # 360 degrees / 24 hours = 15 degrees per hour
-                    self.logger.info(
-                        f"Slewing Telescope {telescope_name} to RA/Dec {slew_ra:.2f}°/{slew_dec:.2f}°"
-                    )
-                    telescope.get(
-                        "SlewToCoordinatesAsync",
-                        RightAscension=ra_hours,  # RA in hours
-                        Declination=slew_dec,  # Dec in degrees
-                    )
+        filter_index = names.index(f)
+        self.execute_and_monitor_device_task(
+            "FilterWheel",
+            "Position",
+            filter_index,
+            "Position",
+            device_name=paired_devices["FilterWheel"],
+            log_message=f"Setting FilterWheel {paired_devices['FilterWheel']} to {f}",
+            weather_sensitive=False,
+        )
+        return filter_wheel.get("FocusOffsets")[filter_index]
 
-                    time.sleep(1)
+    def _configure_focuser(
+        self,
+        paired_devices: PairedDevices,
+        action_value: BaseActionConfig,
+        filter_focus_shift: float,
+    ) -> None:
+        """Move the focuser to the required position, accounting for filter offset."""
+        if "Focuser" not in paired_devices or not self.logger.error_free:
+            return
 
-                    # wait for slew to finish
-                    self.wait_for_slew(paired_devices)
+        defocuser = Defocuser(observatory=self, paired_devices=paired_devices)
 
-        # Set filter
-        if (
-            (action_value.get("filter") is not None)
-            and "FilterWheel" in paired_devices
-            and self.logger.error_free
-        ):
-            # get filter name
-            f = action_value["filter"]
-            if isinstance(f, list):
-                f = f[filter_list_index]
-
-            filter_wheel = paired_devices.filter_wheel
-            names = filter_wheel.get("Names")
-
-            # find index of filter name
-            if f in names:
-                filter_index = [i for i, d in enumerate(names) if d == f][0]
-            else:
-                raise ValueError(f"Filter {f} not found in {names}")
-
-            filter_wheel_name = paired_devices["FilterWheel"]
-            # set filter
-            self.execute_and_monitor_device_task(
-                "FilterWheel",
-                "Position",
-                filter_index,
-                "Position",
-                device_name=filter_wheel_name,
-                log_message=f"Setting FilterWheel {filter_wheel_name} to {f}",
-                weather_sensitive=False,
-            )
-            filter_focus_shift = filter_wheel.get("FocusOffsets")[filter_index]
-        else:
-            filter_focus_shift = 0
-
-        # Set focuser position
-        if (
-            (
-                (action_value.get("focus_shift") is not None)
-                or (action_value.get("focus_position") is not None)
-                or (filter_focus_shift is not None)
-            )
-            and ("Focuser" in paired_devices)
-            and self.logger.error_free
-        ):
-            defocuser = Defocuser(
-                observatory=self,
-                paired_devices=paired_devices,
-            )
-
-            if action_value.get("focus_position") is not None:
-                new_focus_position = action_value["focus_position"]
-            elif action_value.get("focus_shift") is not None:
-                new_focus_position = (
-                    defocuser.best_focus_position + action_value["focus_shift"]
-                )
-
-            else:
-                new_focus_position = defocuser.best_focus_position
-
-            new_focus_position += filter_focus_shift
-
-            defocuser.defocus(new_focus_position)
-        elif "Focuser" in paired_devices:
-            # Move focuser to best focus position
-            defocuser = Defocuser(
-                observatory=self,
-                paired_devices=paired_devices,
-            )
+        has_explicit = (
+            action_value.get("focus_position") is not None
+            or action_value.get("focus_shift") is not None
+            or filter_focus_shift
+        )
+        if not has_explicit:
             defocuser.refocus()
+            return
 
-        if "Camera" in paired_devices:
-            camera = paired_devices.camera
-            bin = action_value.get("bin", 1)
+        if action_value.get("focus_position") is not None:
+            new_pos = action_value["focus_position"]
+        elif action_value.get("focus_shift") is not None:
+            new_pos = defocuser.best_focus_position + action_value["focus_shift"]
+        else:
+            new_pos = defocuser.best_focus_position
 
-            binx = camera.get("BinX")
-            biny = camera.get("BinY")
+        defocuser.defocus(new_pos + filter_focus_shift)
 
-            if bin != binx or bin != biny:
-                self.logger.info(
-                    f"Setting Camera {paired_devices['Camera']} binning to {bin}x{bin}"
+    def _configure_camera(
+        self,
+        paired_devices: PairedDevices,
+        action_value: BaseActionConfig,
+    ) -> None:
+        """Set camera binning and subframe for the upcoming sequence."""
+        if "Camera" not in paired_devices:
+            return
+
+        camera = paired_devices.camera
+        bin_val = action_value.get("bin", 1)
+
+        if bin_val != camera.get("BinX") or bin_val != camera.get("BinY"):
+            self.logger.info(
+                f"Setting Camera {paired_devices['Camera']} binning to {bin_val}x{bin_val}"
+            )
+            camera.set("BinX", bin_val)
+            camera.set("BinY", bin_val)
+            camera.set("NumX", camera.get("CameraXSize") // bin_val)
+            camera.set("NumY", camera.get("CameraYSize") // bin_val)
+
+        if action_value.has_subframe():
+            try:
+                self._setup_camera_subframe(camera, action_value, paired_devices)
+            except Exception as e:
+                self.logger.warning(
+                    f"Failed to set subframe on Camera {paired_devices['Camera']}: {e}. "
+                    "Falling back to full frame."
                 )
-
-                camera.set("BinX", bin)
-                camera.set("BinY", bin)
                 camera.set("NumX", camera.get("CameraXSize") // camera.get("BinX"))
                 camera.set("NumY", camera.get("CameraYSize") // camera.get("BinY"))
-
-            # Handle subframing if specified in action_value
-            if action_value.has_subframe():
-                try:
-                    self._setup_camera_subframe(camera, action_value, paired_devices)
-                except Exception as e:
-                    self.logger.warning(
-                        f"Failed to set subframe on Camera {paired_devices['Camera']}: {e}. "
-                        "Falling back to full frame."
-                    )
-                    # Reset to full frame on failure
-                    camera.set("NumX", camera.get("CameraXSize") // camera.get("BinX"))
-                    camera.set("NumY", camera.get("CameraYSize") // camera.get("BinY"))
-                    camera.set("StartX", 0)
-                    camera.set("StartY", 0)
-            else:
-                # No subframe specified - ensure camera is set to full frame
-                # This is important when switching from a subframed action to a full-frame action
-                current_numx = camera.get("NumX")
-                expected_numx = camera.get("CameraXSize") // camera.get("BinX")
-                current_numy = camera.get("NumY")
-                expected_numy = camera.get("CameraYSize") // camera.get("BinY")
-
-                # Only reset if not already at full frame
-                if (
-                    current_numx != expected_numx
-                    or current_numy != expected_numy
-                    or camera.get("StartX") != 0
-                    or camera.get("StartY") != 0
-                ):
-                    self.logger.info(
-                        f"Resetting Camera {paired_devices['Camera']} to full frame"
-                    )
-                    # When resetting to full frame, set StartX/StartY to 0 first, then expand size
-                    camera.set("StartX", 0)
-                    camera.set("StartY", 0)
-                    camera.set("NumX", expected_numx)
-                    camera.set("NumY", expected_numy)
+                camera.set("StartX", 0)
+                camera.set("StartY", 0)
+        else:
+            expected_x = camera.get("CameraXSize") // camera.get("BinX")
+            expected_y = camera.get("CameraYSize") // camera.get("BinY")
+            if (
+                camera.get("NumX") != expected_x
+                or camera.get("NumY") != expected_y
+                or camera.get("StartX") != 0
+                or camera.get("StartY") != 0
+            ):
+                self.logger.info(
+                    f"Resetting Camera {paired_devices['Camera']} to full frame"
+                )
+                camera.set("StartX", 0)
+                camera.set("StartY", 0)
+                camera.set("NumX", expected_x)
+                camera.set("NumY", expected_y)
 
     def _setup_camera_subframe(
         self,
@@ -1899,8 +1865,9 @@ class Observatory:
 
             slewing = telescope.get("Slewing")
 
-        # slew settle time (guess)
-        time.sleep(1)
+        settle = telescope.get("SlewSettleTime")
+        if settle:
+            time.sleep(settle)
 
     def check_conditions(self, action: Action | None = None) -> bool:
         """
@@ -2251,277 +2218,310 @@ class Observatory:
 
         return False
 
+    # ------------------------------------------------------------------ #
+    # Private helpers for image_sequence                                  #
+    # ------------------------------------------------------------------ #
+
+    def _build_exposure_list(self, action: Action) -> tuple[list, list]:
+        """Return (exptime_list, n_exposures_list) for the exposure loop."""
+        action_value = action.action_value
+        if action.action_type == "calibration":
+            return action_value["exptime"], action_value["n"]
+        exptime_list = [action_value["exptime"]]
+        n = action_value.get("n")
+        n_exposures_list = [int(n) if (n is not None and n >= 0) else int(1e6)]
+        return exptime_list, n_exposures_list
+
+    def _is_meridian_flip_enabled(
+        self, action: Action, paired_devices: PairedDevices
+    ) -> bool:
+        """Return True if automated meridian flip is configured for this action."""
+        if (
+            "Telescope" not in paired_devices
+            or action.action_value.get("disable_telescope_movement", False)
+            or action.action_type == "calibration"
+        ):
+            return False
+        try:
+            return paired_devices.get_device_config("Telescope").get(
+                "meridian_flip", False
+            )
+        except Exception:
+            self.logger.warning(
+                "Error checking meridian flip configuration, defaulting to disabled."
+            )
+            return False
+
+    def _wait_for_nonsidereal_activation(
+        self,
+        nonsidereal: NonSiderealManager,
+        paired_devices: PairedDevices,
+        action: Action,
+    ) -> None:
+        """Wait until the non-sidereal activation time, then apply tracking rates.
+
+        If activation has already passed by more than 30 s (late start), re-slews
+        to the current satellite position before enabling rates.
+        """
+        if not nonsidereal.is_active or "Telescope" not in paired_devices:
+            return
+
+        lead_seconds = float(
+            action.action_value.get("nonsidereal_start_lead_time_seconds", 60.0)
+        )
+        activation_time = nonsidereal.tracking_activation_time(
+            lead_time_seconds=lead_seconds
+        )
+        if activation_time is None:
+            return
+
+        initial_wait_seconds = (activation_time - Time.now()).to_value("s")
+        if initial_wait_seconds > 0:
+            self.logger.info(
+                "Non-sidereal pre-point complete. Waiting "
+                f"{initial_wait_seconds:.1f}s to start imaging and tracking rates."
+            )
+        elif initial_wait_seconds < -30:
+            self.logger.warning(
+                f"Non-sidereal activation time passed {-initial_wait_seconds:.0f}s ago. "
+                "Re-centering to current satellite position."
+            )
+            nonsidereal.recenter(paired_devices, self.wait_for_slew)
+
+        while Time.now() < activation_time:
+            if not self.check_conditions(action):
+                break
+            remaining = (activation_time - Time.now()).to_value("s")
+            if remaining <= 0:
+                break
+            time.sleep(min(1.0, remaining))
+
+        if self.check_conditions(action):
+            nonsidereal.apply_rates(paired_devices.telescope)
+
+    def _handle_pointing_correction(
+        self,
+        action: Action,
+        paired_devices: PairedDevices,
+        filepath: str | None,
+        exptime: float,
+        pointing_attempts: int,
+        wcs_solve: object,
+    ) -> tuple[bool, object, int]:
+        """Run one pointing-correction iteration.
+
+        Returns (pointing_complete, wcs_solve, pointing_attempts).
+        """
+        if filepath is None:
+            self.logger.error(
+                "No image file path returned from exposure, cannot do pointing correction"
+            )
+            return True, wcs_solve, pointing_attempts
+
+        pointing_complete, wcs_solve = self.pointing_correction(
+            action, filepath, paired_devices, sync=False, slew=True
+        )
+        settle_factor = paired_devices.get_device_config("Telescope").get(
+            "settle_factor", 0.0
+        )
+        time.sleep(exptime * settle_factor)
+        pointing_attempts += 1
+
+        if wcs_solve is not None:
+            with fits.open(filepath, mode="update") as hdul:
+                hdul[0].header.update(wcs_solve.to_header())  # type: ignore
+                hdul.flush()
+
+        if not pointing_complete:
+            wcs_solve = None  # don't contaminate next image if pointing failed
+
+        if pointing_attempts > 3 and not pointing_complete:
+            self.logger.warning(
+                f"Pointing correction for {action.action_value['object']} with "
+                f"{action.device_name} failed after {pointing_attempts} attempts"
+            )
+            pointing_complete = True
+
+        return pointing_complete, wcs_solve, pointing_attempts
+
+    def _run_exposure_loop(
+        self,
+        action: Action,
+        action_value: object,
+        paired_devices: PairedDevices,
+        nonsidereal: NonSiderealManager,
+        exptime_list: list,
+        n_exposures_list: list,
+        camera: object,
+        maxadu: float,
+        meridian_flip_enabled: bool,
+    ) -> None:
+        """Execute all exposures for an image sequence."""
+        pointing_complete = False
+        pointing_attempts = 0
+        guiding = False
+        wcs_solve = None
+        last_flip_check_time = 0
+        sequence_counter = 0
+
+        for i, exptime in enumerate(exptime_list):
+            if not self.check_conditions(action):
+                break
+
+            for exposure in range(n_exposures_list[i]):
+                # Meridian flip check (every 60 s)
+                if meridian_flip_enabled:
+                    now = time.time()
+                    if now - last_flip_check_time > 60 and self.check_conditions(
+                        action
+                    ):
+                        last_flip_check_time = now
+                        if self._check_and_perform_meridian_flip(
+                            action, paired_devices, guiding, exptime
+                        ):
+                            guiding = False
+                            pointing_complete = False
+                            if nonsidereal.is_active and "Telescope" in paired_devices:
+                                nonsidereal.apply_rates(paired_devices.telescope)
+
+                # Non-sidereal re-centering
+                if nonsidereal.is_active and "Telescope" in paired_devices:
+                    if nonsidereal.should_recenter():
+                        if guiding:
+                            self.guider_manager.stop_guider(
+                                paired_devices["Telescope"],
+                                thread_manager=self.thread_manager,
+                            )
+                        # TODO: Inspect logic, why guiding = False here? Doesn't stop_guider do this?
+                        if nonsidereal.recenter(paired_devices, self.wait_for_slew):
+                            guiding = False
+
+                log_option = (
+                    f"{exposure + 1}/{n_exposures_list[i]}"
+                    if action_value.get("n")
+                    else None
+                )
+
+                if not self.check_conditions(action):
+                    break
+
+                success, filepath = self.perform_exposure(
+                    camera,
+                    exptime=exptime,
+                    maxadu=maxadu,
+                    action=action,
+                    log_option=log_option,
+                    wcs=wcs_solve,
+                    sequence_counter=sequence_counter,
+                    nonsidereal_manager=nonsidereal,
+                    telescope=(
+                        paired_devices.telescope
+                        if "Telescope" in paired_devices
+                        else None
+                    ),
+                )
+                sequence_counter += 1
+
+                if not success:
+                    break
+
+                # Pointing correction (first exposure only until solved)
+                if action_value.get("pointing") and not pointing_complete:
+                    pointing_complete, wcs_solve, pointing_attempts = (
+                        self._handle_pointing_correction(
+                            action,
+                            paired_devices,
+                            filepath,
+                            exptime,
+                            pointing_attempts,
+                            wcs_solve,
+                        )
+                    )
+                    if filepath is None:
+                        break
+                else:
+                    pointing_complete = True
+
+                # Start guiding once pointing is confirmed
+                if action_value.get("guiding") and not guiding and pointing_complete:
+                    guiding = self.guider_manager.start_guider(
+                        image_handler=self.get_image_handler(camera.device_name),
+                        paired_devices=paired_devices,
+                        thread_manager=self.thread_manager,
+                        reset_guiding_reference=action_value.get(
+                            "reset_guiding_reference", True
+                        ),
+                    )
+
+    def _sequence_teardown(
+        self,
+        action_value: object,
+        paired_devices: PairedDevices,
+        nonsidereal: NonSiderealManager,
+    ) -> None:
+        """Stop guiding, reset non-sidereal rates, and stop tracking."""
+        if action_value.get("guiding", False):
+            self.guider_manager.stop_guider(
+                paired_devices["Telescope"], thread_manager=self.thread_manager
+            )
+        if "Telescope" in paired_devices:
+            nonsidereal.reset_rates(paired_devices.telescope)
+        if "Telescope" in paired_devices:
+            self.execute_and_monitor_device_task(
+                "Telescope",
+                "Tracking",
+                False,
+                "Tracking",
+                device_name=paired_devices["Telescope"],
+                log_message=f"Stopping telescope {paired_devices['Telescope']} tracking",
+            )
+
+    # ------------------------------------------------------------------ #
+
     def image_sequence(self, action: Action, paired_devices: PairedDevices) -> None:
-        """
-        Execute a sequence of astronomical images with a camera.
-
-        Runs a complete imaging sequence including observatory setup, multiple
-        exposures with various exposure times, pointing correction, and optional
-        guiding. Handles both object imaging and calibration sequences.
-
-        Parameters:
-            row (dict): Schedule row containing sequence information including:
-                - device_name: Camera device to use
-                - action_type: Type of sequence ('object' or 'calibration')
-                - start_time/end_time: Sequence timing constraints
-                - action_value: Sequence parameters (exposure times, filters, etc.)
-            paired_devices (PairedDevices): Object containing all devices needed
-                for the sequence (camera, telescope, filter wheel, etc.)
-
-        Sequence Features:
-            - Pre-sequence setup (telescope pointing, filter selection)
-            - Multiple exposure time support
-            - Automatic pointing correction for object sequences
-            - Optional autoguiding activation and management
-            - Continuous condition monitoring throughout sequence
-
-        Process Flow:
-            1. Pre-sequence setup (telescope pointing, filters, headers)
-            2. Iterate through exposure time list
-            3. Perform pointing correction (object sequences only)
-            4. Start guiding if configured
-            5. Execute exposures with safety monitoring
-            6. Stop guiding and telescope tracking at completion
-
-        Note:
-            - Supports both single and multiple exposure times
-            - Automatically handles different sequence types
-            - Coordinates telescope, camera, and filter wheel operations
-            - Essential for all astronomical imaging operations
-        """
-
+        """Execute a complete imaging sequence: pre-point, wait for activation,
+        run exposures with optional pointing correction and autoguiding, then
+        clean up tracking on exit."""
         self.logger.info(
             f"Running {action.action_type} sequence for {action.device_name}, "
             f"starting {action.start_time} and ending {action.end_time}"
         )
 
         nonsidereal = NonSiderealManager(action, self.logger)
-        nonsidereal_lead_seconds = float(
-            action.action_value.get("nonsidereal_start_lead_time_seconds", 60.0)
-        )
-        nonsidereal_prepoint = nonsidereal.prepoint_coordinates(
-            lead_time_seconds=nonsidereal_lead_seconds
-        )
-        nonsidereal_activation_time = nonsidereal.tracking_activation_time(
-            lead_time_seconds=nonsidereal_lead_seconds
-        )
-
         self.pre_sequence(
             action,
             paired_devices,
-            near=nonsidereal.is_active,  # not sure I like the 'near' terminology - PPP
-            slew_target_radec_deg=nonsidereal_prepoint,
+            nonsidereal=nonsidereal,
         )
-
-        action_value = action.action_value
+        exptime_list, n_exposures_list = self._build_exposure_list(action)
 
         camera = paired_devices.camera
         maxadu = camera.get("MaxADU")
+        action_value = action.action_value
 
-        if action.action_type == "calibration":
-            exptime_list = action_value["exptime"]
-            n_exposures_list = action_value["n"]
-        else:
-            exptime_list = [action_value["exptime"]]
-
-            if action_value.get("n") is not None and action_value.get("n") >= 0:
-                n_exposures_list = [int(action_value["n"])]
-            else:
-                n_exposures_list = [
-                    int(1e6)
-                ]  # hacky  # TODO make this part of action_config defaults
-
-        pointing_complete = False
-        pointing_attempts = 0
-        guiding = False
         if nonsidereal.is_active and action_value.get("guiding"):
             self.logger.warning(
                 "Guiding is configured but will be disabled: incompatible with non-sidereal tracking"
             )
             action_value = {**action_value, "guiding": False}
-        wcs_solve = None
 
-        # Check if automated meridian flip is enabled in config
-        meridian_flip_enabled = False
-        if (
-            "Telescope" in paired_devices
-            and action_value.get("disable_telescope_movement", False) is False
-            and action.action_type != "calibration"
-        ):
-            try:
-                telescope_config = paired_devices.get_device_config("Telescope")
-                meridian_flip_enabled = telescope_config.get("meridian_flip", False)
-            except Exception:
-                pass
+        meridian_flip_enabled = self._is_meridian_flip_enabled(action, paired_devices)
 
-        last_flip_check_time = 0
-        sequence_counter = 0
         try:
-            if (
-                nonsidereal.is_active
-                and "Telescope" in paired_devices
-                and nonsidereal_activation_time is not None
-            ):
-                initial_wait_seconds = (
-                    nonsidereal_activation_time - Time.now()
-                ).to_value("s")
-                if initial_wait_seconds > 0:
-                    self.logger.info(
-                        "Non-sidereal pre-point complete. Waiting "
-                        f"{initial_wait_seconds:.1f}s to start imaging and tracking rates."
-                    )
-                while Time.now() < nonsidereal_activation_time:
-                    if not self.check_conditions(action):
-                        break
-                    remaining_seconds = (
-                        nonsidereal_activation_time - Time.now()
-                    ).to_value("s")
-                    if remaining_seconds <= 0:
-                        break
-                    time.sleep(min(1.0, remaining_seconds))
-
-                if self.check_conditions(action):
-                    nonsidereal.apply_rates(paired_devices.telescope)
-
-            for i, exptime in enumerate(exptime_list):
-                if not self.check_conditions(action):
-                    break
-
-                n_exposures = n_exposures_list[i]
-
-                for exposure in range(n_exposures):
-                    # Check for meridian flip every minute
-                    if meridian_flip_enabled:
-                        current_time = time.time()
-                        if (
-                            current_time - last_flip_check_time > 60
-                        ) and self.check_conditions(action):
-                            last_flip_check_time = current_time
-                            if self._check_and_perform_meridian_flip(
-                                action, paired_devices, guiding, exptime
-                            ):
-                                guiding = False
-                                pointing_complete = False
-                                if (
-                                    nonsidereal.is_active
-                                    and "Telescope" in paired_devices
-                                ):
-                                    nonsidereal.apply_rates(paired_devices.telescope)
-
-                    # Non-sidereal re-centering
-                    if nonsidereal.is_active and "Telescope" in paired_devices:
-                        if nonsidereal.should_recenter():
-                            if guiding:
-                                self.guider_manager.stop_guider(
-                                    paired_devices["Telescope"],
-                                    thread_manager=self.thread_manager,
-                                )
-                            if nonsidereal.recenter(paired_devices, self.wait_for_slew):
-                                guiding = False
-
-                    if action_value.get("n"):
-                        log_option = f"{exposure + 1}/{n_exposures}"
-                    else:
-                        log_option = None
-
-                    if not self.check_conditions(action):
-                        break
-
-                    success, filepath = self.perform_exposure(
-                        camera,
-                        exptime=exptime,
-                        maxadu=maxadu,
-                        action=action,
-                        log_option=log_option,
-                        wcs=wcs_solve,
-                        sequence_counter=sequence_counter,
-                        nonsidereal_manager=nonsidereal,
-                        telescope=(
-                            paired_devices.telescope
-                            if "Telescope" in paired_devices
-                            else None
-                        ),
-                    )
-                    sequence_counter += 1
-
-                    if not success:
-                        break
-
-                    # pointing correction if not already done
-                    if action_value.get("pointing") and pointing_complete is False:
-                        if filepath is None:
-                            self.logger.error(
-                                "No image file path returned from exposure, "
-                                "cannot do pointing correction"
-                            )
-                            break
-                        pointing_complete, wcs_solve = self.pointing_correction(
-                            action,
-                            filepath,
-                            paired_devices,
-                            sync=False,
-                            slew=True,
-                        )
-
-                        telescope_settle_factor = paired_devices.get_device_config(
-                            "Telescope"
-                        ).get("settle_factor", 0.0)
-                        time.sleep(exptime * telescope_settle_factor)
-
-                        pointing_attempts += 1
-
-                        if wcs_solve is not None:
-                            with fits.open(filepath, mode="update") as hdul:
-                                hdul[0].header.update(wcs_solve.to_header())  # type: ignore
-                                hdul.flush()
-
-                        if pointing_complete is False:
-                            wcs_solve = None  # to not contaminate the next image if pointing fails
-
-                        if pointing_attempts > 3 and pointing_complete is False:
-                            self.logger.warning(
-                                f"Pointing correction for {action_value['object']} with "
-                                f"{action.device_name} failed after {pointing_attempts} attempts"
-                            )
-                            pointing_complete = True
-                    else:
-                        pointing_complete = True
-
-                    # initialise guiding once pointing correction is complete
-                    if (
-                        action_value.get("guiding")
-                        and guiding is False
-                        and pointing_complete is True
-                    ):
-                        guiding = self.guider_manager.start_guider(
-                            image_handler=self.get_image_handler(camera.device_name),
-                            paired_devices=paired_devices,
-                            thread_manager=self.thread_manager,
-                            reset_guiding_reference=action_value.get(
-                                "reset_guiding_reference", True
-                            ),
-                        )
+            self._wait_for_nonsidereal_activation(nonsidereal, paired_devices, action)
+            self._run_exposure_loop(
+                action,
+                action_value,
+                paired_devices,
+                nonsidereal,
+                exptime_list,
+                n_exposures_list,
+                camera,
+                maxadu,
+                meridian_flip_enabled,
+            )
         finally:
-            # stop guiding at end of sequence
-            if action_value.get("guiding", False):
-                self.guider_manager.stop_guider(
-                    paired_devices["Telescope"], thread_manager=self.thread_manager
-                )
-
-            # Reset non-sidereal tracking rates before stopping tracking
-            if "Telescope" in paired_devices:
-                nonsidereal.reset_rates(paired_devices.telescope)
-
-            # stop telescope tracking at end of sequence
-            if "Telescope" in paired_devices:
-                self.execute_and_monitor_device_task(
-                    "Telescope",
-                    "Tracking",
-                    False,
-                    "Tracking",
-                    device_name=paired_devices["Telescope"],
-                    log_message=f"Stopping telescope {paired_devices['Telescope']} tracking",
-                )
+            self._sequence_teardown(action_value, paired_devices, nonsidereal)
 
     def pointing_model_sequence(
         self, action: Action, paired_devices: PairedDevices
