@@ -31,7 +31,7 @@ from typing import Any, Callable
 import astropy.units as u
 from astropy.time import Time
 
-import astra.utils
+from astra.utils import ephemeris
 from astra.alpaca_device_process import AlpacaDevice
 from astra.paired_devices import PairedDevices
 from astra.scheduler import Action
@@ -293,7 +293,7 @@ class NonSiderealManager:
                 ra_rate = float(state.ra_rate_interp(t_seconds))
                 dec_rate = float(state.dec_rate_interp(t_seconds))
             else:
-                ra_rate, dec_rate = astra.utils.compute_nonsidereal_rates_from_interp(
+                ra_rate, dec_rate = ephemeris.compute_nonsidereal_rates_from_interp(
                     state.ra_interp, state.dec_interp, t_seconds
                 )
 

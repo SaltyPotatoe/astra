@@ -9,7 +9,7 @@ from astropy.coordinates import AltAz, EarthLocation, SkyCoord
 from astropy.time import Time
 
 from astra.action_configs import ObjectActionConfig
-from astra.utils import NotMovingBodyError
+from astra.utils.ephemeris import NotMovingBodyError
 
 
 @pytest.fixture

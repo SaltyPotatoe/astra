@@ -21,7 +21,7 @@ from scipy.interpolate import interp1d
 from astropy.time import Time
 
 from astra.nonsidereal import NonSiderealManager
-from astra.utils import compute_nonsidereal_rates_from_interp
+from astra.utils.ephemeris import compute_nonsidereal_rates_from_interp
 from astra.scheduler import Action
 
 
@@ -154,7 +154,7 @@ class TestApplyRates:
         mgr.apply_rates(telescope)
         mgr.logger.warning.assert_called_once()
 
-    @patch("astra.utils.compute_nonsidereal_rates_from_interp")
+    @patch("astra.nonsidereal.ephemeris.compute_nonsidereal_rates_from_interp")
     def test_uses_precomputed_rate_interpolators_when_available(self, rate_fn):
         action = _make_action(
             ra_interp=_make_interp(slope=1e-4, intercept=100.0),

@@ -570,7 +570,7 @@ def _precompute_tracking_path(
     """
     from astropy.time import Time
 
-    from astra.utils import precompute_ephemeris
+    from astra.utils.ephemeris import precompute_ephemeris
 
     schedule_start = datetime.fromisoformat(schedule_data["start_time"])
     schedule_end = datetime.fromisoformat(schedule_data["end_time"])
