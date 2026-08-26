@@ -20,8 +20,14 @@ import astropy.units as u
 from scipy.interpolate import interp1d
 from astropy.time import Time
 
+from astropy.coordinates import EarthLocation
+
 from astra.nonsidereal import NonSiderealManager
-from astra.utils.ephemeris import compute_nonsidereal_rates_from_interp
+from astra.utils.ephemeris import (
+    _SOLAR_TO_SIDEREAL,
+    compute_nonsidereal_rates_from_interp,
+    precompute_ephemeris,
+)
 from astra.scheduler import Action
 
 
@@ -174,6 +180,11 @@ class TestApplyRates:
 
 class TestNonsiderealRateHelper:
     def test_compute_nonsidereal_rates_uses_sidereal_second_conversion(self):
+        # Target advances 1 deg of RA coordinate per 60 solar seconds. One degree
+        # is 240 seconds of RA, so the rate is 4 RA-seconds per solar second.
+        # ASCOM wants it per *sidereal* second, and an interval of N solar seconds
+        # spans N * _SOLAR_TO_SIDEREAL sidereal seconds, so the rate per sidereal
+        # second is 4 / _SOLAR_TO_SIDEREAL (~3.98908, i.e. slightly less than 4).
         ra_interp = _make_interp(slope=1.0 / 60.0, intercept=0.0)
         dec_interp = _make_interp(slope=0.0, intercept=0.0)
 
@@ -184,8 +195,29 @@ class TestNonsiderealRateHelper:
             dt=60.0,
         )
 
-        assert ra_rate == pytest.approx(4.010951637, rel=1e-9)
+        assert ra_rate == pytest.approx(4.0 / _SOLAR_TO_SIDEREAL, rel=1e-9)
         assert dec_rate == pytest.approx(0.0, abs=1e-12)
+
+    def test_rate_helper_agrees_with_precomputed_rate_interpolators(self):
+        """The finite-difference fallback must match precompute_ephemeris's rates.
+
+        Both express ASCOM units per sidereal second; a mismatch here means one of
+        the two solar/sidereal conversions has been inverted.
+        """
+        obs_time = Time("2025-06-01T00:00:00", format="isot", scale="utc")
+        location = EarthLocation(lat=28.3 * u.deg, lon=-16.5 * u.deg, height=2390 * u.m)
+
+        ra_interp, dec_interp, ra_rate_interp, dec_rate_interp = precompute_ephemeris(
+            "mars", obs_time, 2.0, location, return_rates=True
+        )
+
+        t = 1800.0
+        ra_rate_fd, dec_rate_fd = compute_nonsidereal_rates_from_interp(
+            ra_interp, dec_interp, t
+        )
+
+        assert ra_rate_fd == pytest.approx(float(ra_rate_interp(t)), rel=1e-3)
+        assert dec_rate_fd == pytest.approx(float(dec_rate_interp(t)), rel=1e-3)
 
 
 class TestPrepointAndActivation:
@@ -287,13 +319,50 @@ class TestRecenter:
         with patch("time.sleep"):
             mgr.recenter(paired_devices, wait_fn)
 
-        paired_devices.telescope.get.assert_called_once()
-        call_kwargs = paired_devices.telescope.get.call_args
-        assert call_kwargs.args[0] == "SlewToCoordinatesAsync"
-        ra_hours = call_kwargs.kwargs["RightAscension"]
-        dec_deg = call_kwargs.kwargs["Declination"]
-        assert 0.0 <= ra_hours < 24.0
-        assert -90.0 <= dec_deg <= 90.0
+        # recenter() does a coarse slew followed by a fine correction, because the
+        # target keeps moving while the coarse slew is in progress.
+        slew_calls = [
+            c
+            for c in paired_devices.telescope.get.call_args_list
+            if c.args and c.args[0] == "SlewToCoordinatesAsync"
+        ]
+        assert len(slew_calls) == 2
+
+        for call in slew_calls:
+            ra_hours = call.kwargs["RightAscension"]
+            dec_deg = call.kwargs["Declination"]
+            assert 0.0 <= ra_hours < 24.0
+            assert -90.0 <= dec_deg <= 90.0
+
+    def test_fine_correction_retargets_after_coarse_slew(self):
+        """The second slew must be re-evaluated, not a replay of the first."""
+        mgr = _make_active_manager(ra_slope=1e-2)
+        paired_devices = self._make_paired_devices()
+
+        # Advance the clock between the two ephemeris evaluations so the target
+        # has measurably moved by the time the fine correction is computed.
+        base = Time(mgr._state.sequence_start_time)
+        calls = {"n": 0}
+
+        def fake_now():
+            # First evaluation is the coarse slew; everything after it happens
+            # 30 s later, once the coarse slew has completed.
+            calls["n"] += 1
+            return base if calls["n"] == 1 else base + 30 * u.s
+
+        with patch("time.sleep"), patch("astra.nonsidereal.Time.now", fake_now):
+            mgr.recenter(paired_devices, MagicMock())
+
+        slew_calls = [
+            c
+            for c in paired_devices.telescope.get.call_args_list
+            if c.args and c.args[0] == "SlewToCoordinatesAsync"
+        ]
+        assert len(slew_calls) == 2
+        assert (
+            slew_calls[0].kwargs["RightAscension"]
+            != slew_calls[1].kwargs["RightAscension"]
+        )
 
     def test_calls_wait_fn_and_reapplies_rates(self):
         mgr = _make_active_manager()
@@ -304,7 +373,11 @@ class TestRecenter:
             result = mgr.recenter(paired_devices, wait_fn)
 
         assert result is True
-        wait_fn.assert_called_once_with(paired_devices)
+        # Once after the coarse slew, once after the fine correction.
+        assert wait_fn.call_args_list == [
+            ((paired_devices,), {}),
+            ((paired_devices,), {}),
+        ]
         # apply_rates sets RightAscensionRate and DeclinationRate
         keys_set = {c.args[0] for c in paired_devices.telescope.set.call_args_list}
         assert "RightAscensionRate" in keys_set

@@ -11,6 +11,7 @@ from typing import Any, Tuple
 
 import astropy.units as u
 import numpy as np
+import requests
 from astropy.coordinates import (
     AltAz,
     EarthLocation,
@@ -319,7 +320,10 @@ def precompute_ephemeris(
             if "RA_rate" in eph.colnames and "DEC_rate" in eph.colnames:
                 ra_rate_as_per_hour = np.asarray(eph["RA_rate"], dtype=float)
                 dec_rate_as_per_hour = np.asarray(eph["DEC_rate"], dtype=float)
-        except ConnectionError:
+        except requests.exceptions.RequestException:
+            # Network/HTTP failures are not evidence that the body is fixed --
+            # let them propagate so the caller does not silently fall back to
+            # sidereal tracking for a genuinely moving target.
             raise
         except Exception as e:
             raise NotMovingBodyError(
@@ -394,8 +398,11 @@ def compute_nonsidereal_rates_from_interp(
           dec_rate - arcseconds per sidereal second       (ASCOM DeclinationRate)
     """
     # Scale dt from solar seconds to sidereal seconds for correct per-sidereal-second rates.
-    # One sidereal second is shorter than one solar second.
-    dt_in_sidereal_s = dt / _SOLAR_TO_SIDEREAL
+    # A sidereal second is shorter than a solar second, so an interval of ``dt`` solar
+    # seconds spans ``dt * _SOLAR_TO_SIDEREAL`` sidereal seconds.  This matches the
+    # ``/ _SOLAR_TO_SIDEREAL`` applied to the per-solar-second rates in
+    # ``precompute_ephemeris`` -- both express the rate per sidereal second.
+    dt_in_sidereal_s = dt * _SOLAR_TO_SIDEREAL
 
     delta_ra_deg = float(ra_interp(t_seconds + dt)) - float(ra_interp(t_seconds))
     delta_dec_deg = float(dec_interp(t_seconds + dt)) - float(dec_interp(t_seconds))

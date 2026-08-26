@@ -5,6 +5,7 @@ import astropy.units as u
 import numpy as np
 import pandas as pd
 import pytest
+import requests
 from astropy.coordinates import EarthLocation, SkyCoord
 from astropy.table import Table
 from astropy.time import Time, TimeDelta
@@ -453,6 +454,46 @@ def test_nonsidereal_rates_moon_faster_than_mars(location):
     assert abs(moon_ra_rate) > abs(mars_ra_rate), (
         f"Moon RA rate ({moon_ra_rate}) should exceed Mars rate ({mars_ra_rate})"
     )
+
+
+def test_precompute_ephemeris_propagates_network_errors(location, monkeypatch):
+    """A Horizons network failure must not be reported as "not a moving body".
+
+    Collapsing it into NotMovingBodyError makes the caller fall back to sidereal
+    coordinates for a genuinely moving target, silently mistracking it.
+    """
+    import astroquery.jplhorizons
+
+    class _OfflineHorizons:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def ephemerides(self, *args, **kwargs):
+            raise requests.exceptions.ConnectionError("no route to host")
+
+    monkeypatch.setattr(astroquery.jplhorizons, "Horizons", _OfflineHorizons)
+
+    obs_time = Time("2026-04-01T00:00:00", format="isot", scale="utc")
+    with pytest.raises(requests.exceptions.RequestException):
+        precompute_ephemeris("C/2023 A3", obs_time, 1.0, location)
+
+
+def test_precompute_ephemeris_unresolved_name_is_not_moving_body(location, monkeypatch):
+    """A genuine resolution failure still maps to NotMovingBodyError."""
+    import astroquery.jplhorizons
+
+    class _UnresolvableHorizons:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def ephemerides(self, *args, **kwargs):
+            raise ValueError("Unknown target")
+
+    monkeypatch.setattr(astroquery.jplhorizons, "Horizons", _UnresolvableHorizons)
+
+    obs_time = Time("2026-04-01T00:00:00", format="isot", scale="utc")
+    with pytest.raises(NotMovingBodyError, match="could not be resolved"):
+        precompute_ephemeris("NotARealObject", obs_time, 1.0, location)
 
 
 @pytest.mark.network

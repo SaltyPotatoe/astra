@@ -55,7 +55,8 @@ dependencies = [
   "pyyaml",
   "ruamel.yaml",
   "cabaret>=0.5.4",
-  "astroquery>=0.4.11"
+  "astroquery>=0.4.11",
+  "requests"
 ]
 description = "Automated Survey observaTory Robotised with Alpaca"
 license = {text = "GPL-3.0"}

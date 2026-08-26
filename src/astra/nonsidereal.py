@@ -45,6 +45,13 @@ __all__ = ["NonSiderealManager"]
 _RATE_CHANGE_THRESHOLD_FRACTION = 0.001  # 0.1%
 _RATE_ABSOLUTE_FLOOR = 1e-6  # arcsec/s — below this, treat as "no meaningful change"
 
+# Seconds to wait after issuing an asynchronous slew before the caller starts
+# polling ``Slewing``; some drivers do not raise the flag immediately. Mirrors
+# ``observatory.SLEW_POLL_START_DELAY``, which cannot be imported here because
+# observatory imports this module. The post-slew settle is applied by the
+# ``wait_for_slew_fn`` passed into ``recenter``.
+_SLEW_POLL_START_DELAY = 1.0
+
 
 @dataclass
 class _NonSiderealState:
@@ -167,8 +174,6 @@ class NonSiderealManager:
             telescope = paired_devices.telescope
             # TODO: Check dome open
 
-            settle = telescope.get("SlewSettleTime") or 0
-
             # Coarse slew to the satellite's current position.
             t_seconds = (Time.now() - state.sequence_start_time).to(u.s).value
             ra_deg = float(state.ra_interp(t_seconds)) % 360.0  # unwrap → [0, 360)
@@ -181,8 +186,7 @@ class NonSiderealManager:
                 RightAscension=ra_deg / 15.0,  # ASCOM expects RA in hours [0, 24)
                 Declination=dec_deg,
             )
-            if settle:
-                time.sleep(settle)
+            time.sleep(_SLEW_POLL_START_DELAY)
             wait_for_slew_fn(paired_devices)
 
             # Fine correction: the satellite moved during the coarse slew. Re-target
@@ -198,8 +202,7 @@ class NonSiderealManager:
                 RightAscension=ra_deg / 15.0,
                 Declination=dec_deg,
             )
-            if settle:
-                time.sleep(settle)
+            time.sleep(_SLEW_POLL_START_DELAY)
             wait_for_slew_fn(paired_devices)
 
             # Force the post-slew rate push regardless of delta — the mount has

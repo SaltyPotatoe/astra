@@ -75,6 +75,15 @@ from astra.utils import ephemeris
 
 logging.getLogger("sqlite3worker").setLevel(logging.INFO)
 
+# Seconds to wait after issuing an asynchronous slew before polling ``Slewing``.
+# Some drivers do not raise the flag immediately, and polling too early makes
+# wait_for_slew() return while the mount is still moving.
+SLEW_POLL_START_DELAY = 1.0
+
+# Floor for the post-slew settle. Mounts commonly report SlewSettleTime == 0,
+# which would leave no time for mechanical vibrations to dampen.
+MIN_SLEW_SETTLE_TIME = 1.0
+
 
 class Observatory:
     """
@@ -1590,9 +1599,9 @@ class Observatory:
             RightAscension=ra_deg / 15.0,
             Declination=dec_deg,
         )
-        settle = telescope.get("SlewSettleTime") or 0
-        if settle:
-            time.sleep(settle)
+        # Let the driver raise Slewing before wait_for_slew starts polling it;
+        # wait_for_slew applies the post-slew settle itself.
+        time.sleep(SLEW_POLL_START_DELAY)
         self.wait_for_slew(paired_devices)
 
     def _configure_filter(
@@ -1637,10 +1646,16 @@ class Observatory:
         filter_focus_shift: float,
     ) -> None:
         """Move the focuser to the required position, accounting for filter offset."""
-        if "Focuser" not in paired_devices or not self.logger.error_free:
+        if "Focuser" not in paired_devices:
             return
 
         defocuser = Defocuser(observatory=self, paired_devices=paired_devices)
+
+        # While an error is outstanding, explicit focus requests are not honoured;
+        # the focuser is only returned to best focus.
+        if not self.logger.error_free:
+            defocuser.refocus()
+            return
 
         has_explicit = (
             action_value.get("focus_position") is not None
@@ -1834,7 +1849,7 @@ class Observatory:
         Safety Features:
             - Continuous condition checking during wait (weather, errors, schedule)
             - Automatic timeout protection (prevents infinite loops)
-            - 1-second settle time after slew completion
+            - Post-slew settle time (SlewSettleTime, at least 1 second)
 
         Process:
             1. Checks initial slewing status
@@ -1867,9 +1882,8 @@ class Observatory:
 
             slewing = telescope.get("Slewing")
 
-        settle = telescope.get("SlewSettleTime")
-        if settle:
-            time.sleep(settle)
+        settle = telescope.get("SlewSettleTime") or 0
+        time.sleep(max(settle, MIN_SLEW_SETTLE_TIME))
 
     def check_conditions(self, action: Action | None = None) -> bool:
         """
