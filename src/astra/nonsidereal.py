@@ -104,9 +104,21 @@ class NonSiderealManager:
         self,
         action: Action,
         logger: logging.Logger,
+        telescope: AlpacaDevice | None = None,
     ) -> None:
+        """
+        Args:
+            action: The scheduled action for this sequence.
+            logger: Observatory logger.
+            telescope: Mount this sequence will run on. When given, its ASCOM
+                ``CanSetRightAscensionRate`` / ``CanSetDeclinationRate`` flags decide
+                whether non-sidereal tracking can run at all. This is the authoritative
+                check: schedule validation only knows whether *some* mount in the
+                observatory supports differential rates, not which one the action is
+                paired with.
+        """
         self.logger = logger
-        self._state: _NonSiderealState | None = self._setup(action)
+        self._state: _NonSiderealState | None = self._setup(action, telescope)
 
     @property
     def is_active(self) -> bool:
@@ -234,13 +246,16 @@ class NonSiderealManager:
         except Exception as e:
             self.logger.warning(f"Could not reset non-sidereal tracking rates: {e}")
 
-    def _setup(self, action: Action) -> _NonSiderealState | None:
+    def _setup(
+        self, action: Action, telescope: AlpacaDevice | None = None
+    ) -> _NonSiderealState | None:
         """Build state from pre-computed ephemeris in the action config.
 
-        Returns None if non-sidereal tracking is not active (``_nonsidereal`` is False)
-        or telescope movement is disabled.  The ephemeris interpolators are computed
-        once at schedule load time (in ``ObjectActionConfig.validate_visibility``) and
-        read here at sequence start — no repeated network or ephemeris calls at runtime.
+        Returns None if non-sidereal tracking is not active (``_nonsidereal`` is False),
+        telescope movement is disabled, or the mount cannot accept differential tracking
+        rates.  The ephemeris interpolators are computed once at schedule load time (in
+        ``ObjectActionConfig.validate_visibility``) and read here at sequence start — no
+        repeated network or ephemeris calls at runtime.
         """
         if (
             not action.action_value.get("_nonsidereal", False)
@@ -250,6 +265,22 @@ class NonSiderealManager:
             return None
 
         lname = action.action_value.get("lookup_name")
+
+        if telescope is not None and not self._telescope_supports_rates(telescope):
+            # Reaching here means the schedule resolved this target as a moving body,
+            # so running the sequence sidereally would trail it. logger.error clears
+            # error_free, stopping the sequence via the usual check_conditions() path.
+            # Schedule validation catches this for the observatory as a whole; it can
+            # still fire here when the action is paired with a different mount than
+            # the one validation happened to sample.
+            self.logger.error(
+                f"'{lname}' needs non-sidereal tracking, but mount "
+                f"{getattr(telescope, 'device_name', '')} does not support "
+                "differential tracking rates (CanSetRightAscensionRate / "
+                "CanSetDeclinationRate are False)."
+            )
+            return None
+
         ra_interp = action.action_value.get("_ra_interp")
         dec_interp = action.action_value.get("_dec_interp")
         ra_rate_interp = action.action_value.get("_ra_rate_interp")
@@ -317,14 +348,30 @@ class NonSiderealManager:
                 f"Non-sidereal tracking rates: dRA={ra_rate:.6f} s/s, dDec={dec_rate:.6f} as/s"
             )
         except Exception as e:
-            if not telescope.get("CanSetRightAscensionRate"):
-                self.logger.warning(
-                    "Mount does not support RightAscensionRate "
-                    "(CanSetRightAscensionRate=False). "
-                    "Non-sidereal tracking is unavailable."
-                )
-            else:
-                self.logger.warning(f"Could not set non-sidereal tracking rates: {e}")
+            # Rate support was verified in _setup, so this is a transient device
+            # or ephemeris failure. Do not re-query the mount here: if the link is
+            # down that raises a second exception out of the handler.
+            self.logger.warning(f"Could not set non-sidereal tracking rates: {e}")
+
+    def _telescope_supports_rates(self, telescope: AlpacaDevice) -> bool:
+        """Return True if the mount can accept differential RA and Dec tracking rates.
+
+        Both ASCOM capability flags are required: a mount that can offset only one
+        axis cannot follow a moving target. If the flags cannot be read the mount is
+        assumed capable, so a transient query failure degrades to the previous
+        behaviour (attempt the rates, warn if they are rejected) rather than
+        silently disabling tracking.
+        """
+        try:
+            can_ra = bool(telescope.get("CanSetRightAscensionRate"))
+            can_dec = bool(telescope.get("CanSetDeclinationRate"))
+        except Exception as e:
+            self.logger.warning(
+                f"Could not query differential tracking rate support: {e}. "
+                "Assuming the mount supports it."
+            )
+            return True
+        return can_ra and can_dec
 
     @staticmethod
     def _rate_change_negligible(prev: float | None, new: float) -> bool:

@@ -340,6 +340,7 @@ class BaseActionConfig:
         end_time: Time,
         observatory_location: EarthLocation,
         min_altitude: float = 0.0,
+        nonsidereal_supported: bool | None = None,
     ):
         """Validate that the target is visible during the scheduled observation window.
 
@@ -493,10 +494,12 @@ class ObjectActionConfig(BaseActionConfig):
         5. Stop exposures, guiding, and tracking at completion
 
     Non-sidereal tracking:
-        Enables differential tracking for moving targets by providing a
-        ``lookup_name`` instead of static ``ra``/``dec``, combined with a non-zero
-        ``nonsidereal_recenter_interval``. The interval controls how often the
-        telescope re-slews to the updated ephemeris position (in seconds).
+        Differential tracking turns itself on whenever ``lookup_name`` (used instead
+        of static ``ra``/``dec``) resolves to a moving body. There is no separate
+        switch: if the name resolves against astropy's built-in ephemeris or JPL
+        Horizons, the sequence is tracked non-sidereally; if it resolves as a star or
+        deep-sky object, it is tracked sidereally. ``nonsidereal_recenter_interval``
+        only tunes how often the mount re-slews once tracking is already active.
         Autoguiding is incompatible with non-sidereal tracking and will be disabled.
         If using TLE's for Earth-orbiting objects, provide the ``tle`` and use
         "TLE" as the ``lookup_name``.
@@ -504,6 +507,12 @@ class ObjectActionConfig(BaseActionConfig):
         Currently supports astropy built-in bodies (planets, Moon, Sun) and small
         bodies (asteroids, comets) that have ephemerides in JPL Horizons, and
         Earth-orbiting objects through TLEs.
+
+        Requires a mount reporting the ASCOM ``CanSetRightAscensionRate`` and
+        ``CanSetDeclinationRate`` capabilities. If ``lookup_name`` resolves to a
+        moving body and no telescope in the observatory supports them, the schedule
+        is rejected at load time rather than run sidereally, since sidereal tracking
+        would trail the target across every exposure.
 
         **Schedule example for tracking Saturn**::
 
@@ -563,13 +572,13 @@ class ObjectActionConfig(BaseActionConfig):
         "alt": "Altitude coordinate when issuing Alt/Az pointings.",
         "az": "Azimuth coordinate when issuing Alt/Az pointings.",
         "lookup_name": "Instead of specifying ra/dec or alt/az, use SIMBAD/Astropy to look up coordinates for celestial body to observe (e.g., 'mars', 'M31').",
-        "tle": "TLE data for Earth-orbiting objects",
+        "tle": "TLE data for Earth-orbiting objects, as two newline-separated lines. Use 'TLE' as the lookup_name. Requires a mount supporting differential tracking rates.",
         "filter": "Filter name to load before imaging.",
         "focus_shift": "Focus offset relative to the stored best focus.",
         "focus_position": "Absolute focus position override.",
         "n": "Number of exposures in the sequence. If not specified, defaults to infinite exposures until end_time.",
         "guiding": "Start autoguiding with Donuts before imaging. Should be False for solar system objects using non-sidereal tracking, as the star field drifts relative to the guide reference.",
-        "nonsidereal_recenter_interval": "For solar system objects (resolved via lookup_name): re-slew to the updated ephemeris position and refresh tracking rates every N seconds. Set to 0 to disable. Ignored for non-solar-system targets.",
+        "nonsidereal_recenter_interval": "Seconds between re-slews to the target's updated ephemeris position, which also refresh the tracking rates. Applies to any target resolved as moving: planets and moons, JPL Horizons minor bodies, and TLE-defined satellites. Set to 0 to rely on the differential tracking rates alone, with no periodic re-centering; this does not turn non-sidereal tracking off. No effect on fixed targets.",
         "nonsidereal_start_lead_time_seconds": "For non-sidereal targets: initial lead time in seconds used to pre-point before sequence start. The telescope slews to the predicted target position at this offset, waits until the offset time is reached, then starts imaging and applies tracking rates. Set to 0 to start immediately.",
         "pointing": "Perform pointing correction with twirl before imaging.",
         "bin": "Camera binning factor.",
@@ -650,6 +659,7 @@ class ObjectActionConfig(BaseActionConfig):
         start_time: Time,
         end_time: Time,
         observatory_location: EarthLocation,
+        nonsidereal_supported: bool | None = None,
     ) -> tuple[float, float]:
         """Resolve lookup_name to (ra_deg, dec_deg) at start_time.
 
@@ -658,8 +668,17 @@ class ObjectActionConfig(BaseActionConfig):
         For fixed targets (stars, DSOs), falls back to a name resolver and sets
         _nonsidereal=False.
 
+        Args:
+            nonsidereal_supported: Whether any mount in the observatory can accept
+                differential tracking rates. ``None`` means unknown (no connected
+                devices) and is treated as supported.
+
         Returns:
             (ra_deg, dec_deg) at start_time.
+
+        Raises:
+            ValueError: If the name resolves to a moving body but no mount supports
+                differential rates.
         """
         duration_hours = (end_time - start_time).to_value("hr") + 0.5
         try:
@@ -696,6 +715,18 @@ class ObjectActionConfig(BaseActionConfig):
             )
             ra = target_coord.ra.deg
             dec = target_coord.dec.deg
+
+        if self._nonsidereal and nonsidereal_supported is False:
+            # The resolver says this body moves, so tracking it sidereally would
+            # trail it across the exposure. Refuse the schedule instead of quietly
+            # producing smeared frames all night.
+            raise ValueError(
+                f"Target '{self.object}' (lookup_name='{self.lookup_name}') resolves "
+                "to a moving body and needs non-sidereal tracking, but no telescope "
+                "in this observatory supports differential tracking rates "
+                "(CanSetRightAscensionRate / CanSetDeclinationRate are False)."
+            )
+
         return ra, dec
 
     def validate_visibility(
@@ -704,6 +735,7 @@ class ObjectActionConfig(BaseActionConfig):
         end_time: Time,
         observatory_location: EarthLocation,
         min_altitude: float = 0.0,
+        nonsidereal_supported: bool | None = None,
     ) -> None:
         """Validate that the target is visible during the scheduled observation window.
 
@@ -715,10 +747,15 @@ class ObjectActionConfig(BaseActionConfig):
             end_time: Observation end time as astropy Time object
             observatory_location: Observatory location as EarthLocation object
             min_altitude: Minimum altitude in degrees for target to be considered visible (default: 0°)
+            nonsidereal_supported: Whether any telescope in the observatory can accept
+                differential tracking rates (ASCOM CanSetRightAscensionRate and
+                CanSetDeclinationRate). ``None`` means unknown -- no devices are
+                connected -- and leaves non-sidereal resolution enabled.
 
         Raises:
-            ValueError: If RA/Dec are not provided or if target is below minimum altitude
-                at any of the three check points (start, middle, end)
+            ValueError: If RA/Dec are not provided, if target is below minimum altitude
+                at any of the three check points (start, middle, end), or if
+                lookup_name resolves to a moving body that no mount can track
 
         Note:
             If RA/Dec are not provided, attempts to resolve them from 'lookup_name'
@@ -731,7 +768,10 @@ class ObjectActionConfig(BaseActionConfig):
         if ra is None or dec is None:
             if self.lookup_name is not None:
                 ra, dec = self._resolve_lookup_name(
-                    start_time, end_time, observatory_location
+                    start_time,
+                    end_time,
+                    observatory_location,
+                    nonsidereal_supported=nonsidereal_supported,
                 )
 
             elif self.alt is not None and self.az is not None:

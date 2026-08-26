@@ -652,9 +652,11 @@ async def schedule():
 
         # remove private keys from action_value
         schedule["action_value"] = schedule["action_value"].apply(
-            lambda x: {k: v for k, v in x.items() if not k.startswith("_")}
-            if isinstance(x, dict)
-            else x
+            lambda x: (
+                {k: v for k, v in x.items() if not k.startswith("_")}
+                if isinstance(x, dict)
+                else x
+            )
         )
 
         obs.logger.debug("Schedule read for frontend")

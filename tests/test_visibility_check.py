@@ -293,3 +293,116 @@ def test_visibility_resolution_from_lookup_name(
                 observatory_location=observatory_location,
                 min_altitude=0.0,
             )
+
+
+class TestNonsiderealCapabilityGate:
+    """validate_visibility gates on whether the name resolved to a moving body.
+
+    ``nonsidereal_supported`` reflects whether any telescope in the observatory
+    reports ASCOM CanSetRightAscensionRate and CanSetDeclinationRate.
+    """
+
+    def _config(self, **kwargs):
+        return ObjectActionConfig(
+            object="Test Target", exptime=60.0, lookup_name="mars", **kwargs
+        )
+
+    def _validate(self, config, observatory_location, observation_times, **kwargs):
+        start_time, end_time = observation_times
+        config.validate_visibility(
+            start_time=start_time,
+            end_time=end_time,
+            observatory_location=observatory_location,
+            min_altitude=0.0,
+            **kwargs,
+        )
+
+    @pytest.mark.parametrize(
+        "kwargs",
+        [{}, {"nonsidereal_recenter_interval": 300}, {"tle": "1 25544U ...\n2 ..."}],
+        ids=["bare_lookup_name", "recenter_interval_set", "tle_supplied"],
+    )
+    def test_moving_body_on_unsupported_mount_raises(
+        self, observatory_location, observation_times, kwargs
+    ):
+        """A moving target that no mount can track is a schedule error.
+
+        This does not depend on how the action was written: recenter_interval is a
+        cadence knob with a default of 0, so requiring it here would let a comet
+        scheduled with default settings degrade to sidereal in silence.
+        """
+        import astra.action_configs
+
+        interp = unittest.mock.MagicMock(return_value=0.0)
+        with unittest.mock.patch.object(
+            astra.action_configs,
+            "precompute_ephemeris",
+            return_value=(interp, interp, interp, interp),
+        ):
+            config = self._config(**kwargs)
+            with pytest.raises(ValueError, match="differential tracking rates"):
+                self._validate(
+                    config,
+                    observatory_location,
+                    observation_times,
+                    nonsidereal_supported=False,
+                )
+
+    def test_fixed_target_on_unsupported_mount_is_fine(
+        self, observatory_location, observation_times
+    ):
+        """A name that resolves as fixed needs no rates, so it must not be rejected."""
+        import astra.action_configs
+
+        zenith = SkyCoord(
+            alt=85 * u.deg,
+            az=180 * u.deg,
+            frame=AltAz(obstime=observation_times[0], location=observatory_location),
+        ).transform_to("icrs")
+
+        with (
+            unittest.mock.patch.object(
+                astra.action_configs,
+                "precompute_ephemeris",
+                side_effect=NotMovingBodyError("fixed"),
+            ),
+            unittest.mock.patch.object(
+                astra.action_configs,
+                "get_body_coordinates",
+                unittest.mock.MagicMock(return_value=zenith),
+            ),
+        ):
+            config = self._config()
+            self._validate(
+                config,
+                observatory_location,
+                observation_times,
+                nonsidereal_supported=False,
+            )
+
+        assert config._nonsidereal is False
+
+    def test_supported_mount_allows_moving_body(
+        self, observatory_location, observation_times
+    ):
+        import astra.action_configs
+
+        interp = unittest.mock.MagicMock(return_value=0.0)
+        with unittest.mock.patch.object(
+            astra.action_configs,
+            "precompute_ephemeris",
+            return_value=(interp, interp, interp, interp),
+        ) as precompute:
+            config = self._config()
+            try:
+                self._validate(
+                    config,
+                    observatory_location,
+                    observation_times,
+                    nonsidereal_supported=True,
+                )
+            except ValueError as e:
+                assert "differential tracking rates" not in str(e)
+
+        precompute.assert_called_once()
+        assert config._nonsidereal is True

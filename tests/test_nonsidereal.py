@@ -49,6 +49,7 @@ def _make_action(
     recenter_interval=0,
     lookup_name="mars",
     start_time=None,
+    tle=None,
 ):
     """Build a minimal Action suitable for NonSiderealManager._setup."""
     if start_time is None:
@@ -65,6 +66,7 @@ def _make_action(
         "_dec_rate_interp": dec_rate_interp,
         "nonsidereal_recenter_interval": recenter_interval,
         "lookup_name": lookup_name,
+        "tle": tle,
     }.get(key, default)
 
     return Action(
@@ -176,6 +178,86 @@ class TestApplyRates:
         telescope.set.assert_any_call("RightAscensionRate", 0.123)
         telescope.set.assert_any_call("DeclinationRate", -4.56)
         rate_fn.assert_not_called()
+
+
+def _make_telescope(can_ra=True, can_dec=True):
+    """Mount mock reporting the given ASCOM differential-rate capabilities."""
+    telescope = MagicMock()
+    telescope.get.side_effect = lambda key, **kwargs: {
+        "CanSetRightAscensionRate": can_ra,
+        "CanSetDeclinationRate": can_dec,
+    }.get(key, MagicMock())
+    return telescope
+
+
+class TestTelescopeCapabilityGate:
+    """Non-sidereal tracking requires ASCOM differential rates on both axes."""
+
+    def test_active_when_mount_supports_both_axes(self):
+        mgr = NonSiderealManager(
+            _make_action(ra_interp=_make_interp(), dec_interp=_make_interp()),
+            MagicMock(),
+            telescope=_make_telescope(can_ra=True, can_dec=True),
+        )
+        assert mgr.is_active
+
+    @pytest.mark.parametrize(
+        "can_ra,can_dec",
+        [(False, True), (True, False), (False, False)],
+        ids=["no_ra_rate", "no_dec_rate", "neither"],
+    )
+    def test_inactive_when_mount_lacks_a_rate_axis(self, can_ra, can_dec):
+        # Following a moving target needs both axes; one is not enough.
+        mgr = NonSiderealManager(
+            _make_action(ra_interp=_make_interp(), dec_interp=_make_interp()),
+            MagicMock(),
+            telescope=_make_telescope(can_ra=can_ra, can_dec=can_dec),
+        )
+        assert not mgr.is_active
+
+    @pytest.mark.parametrize(
+        "kwargs",
+        [{}, {"tle": "1 25544U ...\n2 25544 ..."}, {"recenter_interval": 300}],
+        ids=["bare_lookup_name", "tle_supplied", "recenter_interval_set"],
+    )
+    def test_unsupported_mount_is_an_error_regardless_of_other_fields(self, kwargs):
+        """Reaching _setup means the target already resolved as moving.
+
+        Sidereal tracking would trail it, so this is an error however the action was
+        written -- recenter_interval is a cadence knob, not an opt-in. logger.error
+        clears error_free, which stops the sequence.
+        """
+        logger = MagicMock()
+        mgr = NonSiderealManager(
+            _make_action(ra_interp=_make_interp(), dec_interp=_make_interp(), **kwargs),
+            logger,
+            telescope=_make_telescope(can_ra=False, can_dec=False),
+        )
+        assert not mgr.is_active
+        logger.error.assert_called_once()
+
+    def test_unreadable_capabilities_assume_supported(self):
+        """A transient query failure must not silently disable tracking."""
+        logger = MagicMock()
+        telescope = MagicMock()
+        telescope.get.side_effect = ConnectionError("mount unreachable")
+
+        mgr = NonSiderealManager(
+            _make_action(ra_interp=_make_interp(), dec_interp=_make_interp()),
+            logger,
+            telescope=telescope,
+        )
+        assert mgr.is_active
+        logger.warning.assert_called_once()
+
+    def test_no_telescope_skips_the_check(self):
+        """Callers without a paired mount keep the pre-capability behaviour."""
+        mgr = NonSiderealManager(
+            _make_action(ra_interp=_make_interp(), dec_interp=_make_interp()),
+            MagicMock(),
+            telescope=None,
+        )
+        assert mgr.is_active
 
 
 class TestNonsiderealRateHelper:

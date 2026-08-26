@@ -2504,7 +2504,13 @@ class Observatory:
             f"starting {action.start_time} and ending {action.end_time}"
         )
 
-        nonsidereal = NonSiderealManager(action, self.logger)
+        nonsidereal = NonSiderealManager(
+            action,
+            self.logger,
+            telescope=(
+                paired_devices.telescope if "Telescope" in paired_devices else None
+            ),
+        )
         self.pre_sequence(
             action,
             paired_devices,
