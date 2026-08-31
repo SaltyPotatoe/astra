@@ -635,18 +635,24 @@ class ScheduleManager:
 
                 try:
                     schedule = Schedule.from_file(self.schedule_path)
-                    schedule.validate(
-                        filterwheel_names=self.get_filterwheel_names(),
-                        observatory_location=self.get_observatory_location(),
-                        nonsidereal_supported=self.get_nonsidereal_support(),
-                    )
                     self.logger.info(f"Schedule read: {schedule.to_one_line_string()}")
+
+                    # Truncate before validating. Validation resolves moving targets
+                    # and pre-computes their ephemerides against each action's
+                    # start_time, so shifting the times afterwards would leave the
+                    # interpolators keyed to an epoch the sequence never runs at.
                     if self.truncate_factor is not None:
                         schedule.update_times(self.truncate_factor)
                         self.logger.info(
                             f"Schedule truncated by factor {self.truncate_factor}. "
                             f"Truncated schedule: {schedule.to_one_line_string()}"
                         )
+
+                    schedule.validate(
+                        filterwheel_names=self.get_filterwheel_names(),
+                        observatory_location=self.get_observatory_location(),
+                        nonsidereal_supported=self.get_nonsidereal_support(),
+                    )
                     self.schedule = schedule
 
                     return schedule

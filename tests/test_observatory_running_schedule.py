@@ -615,7 +615,7 @@ def _precompute_tracking_path(
 def _get_tracking_activation_time(schedule_data: dict) -> datetime:
     """Return when non-sidereal tracking rates should become active."""
     lead_time_seconds = float(
-        schedule_data["action_value"].get("nonsidereal_start_lead_time_seconds", 60.0)
+        schedule_data["action_value"].get("nonsidereal_start_lead_time_seconds", 0.0)
     )
     start_time = datetime.fromisoformat(schedule_data["start_time"])
     if start_time.tzinfo is None:
@@ -1282,7 +1282,7 @@ class TestScheduleActionTypes:
 
         lead_time_s = float(
             schedule_data["action_value"].get(
-                "nonsidereal_start_lead_time_seconds", 60.0
+                "nonsidereal_start_lead_time_seconds", 0.0
             )
         )
         recenter_interval_s = float(
@@ -1509,7 +1509,7 @@ class TestScheduleActionTypes:
         original_apply_rates = NonSiderealManager.apply_rates
         original_prepoint_coordinates = NonSiderealManager.prepoint_coordinates
 
-        def wrapped_prepoint_coordinates(self, lead_time_seconds: float = 60.0):
+        def wrapped_prepoint_coordinates(self, lead_time_seconds: float = 0.0):
             result = original_prepoint_coordinates(
                 self, lead_time_seconds=lead_time_seconds
             )

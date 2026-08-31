@@ -494,25 +494,21 @@ class ObjectActionConfig(BaseActionConfig):
         5. Stop exposures, guiding, and tracking at completion
 
     Non-sidereal tracking:
-        Differential tracking turns itself on whenever ``lookup_name`` (used instead
-        of static ``ra``/``dec``) resolves to a moving body. There is no separate
-        switch: if the name resolves against astropy's built-in ephemeris or JPL
-        Horizons, the sequence is tracked non-sidereally; if it resolves as a star or
-        deep-sky object, it is tracked sidereally. ``nonsidereal_recenter_interval``
-        only tunes how often the mount re-slews once tracking is already active.
-        Autoguiding is incompatible with non-sidereal tracking and will be disabled.
-        If using TLE's for Earth-orbiting objects, provide the ``tle`` and use
-        "TLE" as the ``lookup_name``.
+        Differential tracking is enabled implicitly: whenever ``lookup_name`` is
+        given in place of a fixed ``ra``/``dec`` and resolves to a moving body, the
+        sequence is tracked non-sidereally. Names resolved against Astropy's
+        built-in ephemeris (the planets, the Moon and the Sun) or against JPL
+        Horizons (asteroids and comets) are treated as moving, while names resolved
+        as stars or deep-sky objects are tracked sidereally.
+        ``nonsidereal_recenter_interval`` governs only how often the mount re-slews
+        once tracking is under way. Autoguiding is incompatible with non-sidereal
+        tracking and is disabled automatically. For Earth-orbiting objects, supply
+        ``tle`` and set ``lookup_name`` to "TLE".
 
-        Currently supports astropy built-in bodies (planets, Moon, Sun) and small
-        bodies (asteroids, comets) that have ephemerides in JPL Horizons, and
-        Earth-orbiting objects through TLEs.
-
-        Requires a mount reporting the ASCOM ``CanSetRightAscensionRate`` and
-        ``CanSetDeclinationRate`` capabilities. If ``lookup_name`` resolves to a
-        moving body and no telescope in the observatory supports them, the schedule
-        is rejected at load time rather than run sidereally, since sidereal tracking
-        would trail the target across every exposure.
+        The mount must report the ASCOM capabilities ``CanSetRightAscensionRate``
+        and ``CanSetDeclinationRate``. Where ``lookup_name`` resolves to a moving
+        body and no telescope in the observatory reports both, the schedule is
+        rejected as it is loaded rather than run sidereally.
 
         **Schedule example for tracking Saturn**::
 
@@ -525,7 +521,6 @@ class ObjectActionConfig(BaseActionConfig):
                     "exptime": 30,
                     "filter": "Clear",
                     "nonsidereal_recenter_interval": 300,
-                    "nonsidereal_start_lead_time_seconds": 60,
                 },
                 "start_time":"2025-01-01 00:00:00.000",
                 "end_time":"2025-01-01 01:00:00.000",
@@ -557,12 +552,17 @@ class ObjectActionConfig(BaseActionConfig):
     subframe_center_x: float = 0.5
     subframe_center_y: float = 0.5
     nonsidereal_recenter_interval: int = 0
-    nonsidereal_start_lead_time_seconds: float = 60.0
+    nonsidereal_start_lead_time_seconds: float = 0.0
+    nonsidereal_rate_update_interval: Optional[float] = None
     _nonsidereal: bool = field(default=False, init=False, repr=False)
     _ra_interp: Any = field(default=None, init=False, repr=False)
     _dec_interp: Any = field(default=None, init=False, repr=False)
     _ra_rate_interp: Any = field(default=None, init=False, repr=False)
     _dec_rate_interp: Any = field(default=None, init=False, repr=False)
+    # Epoch the interpolators above are keyed to (their t=0). Kept so a sequence
+    # can verify it is starting at the time the ephemeris was computed for, rather
+    # than trusting that nothing reshuffled the schedule in between.
+    _ephemeris_epoch: Any = field(default=None, init=False, repr=False)
 
     FIELD_DESCRIPTIONS: ClassVar[dict[str, str]] = {
         "object": "Target name.",
@@ -572,14 +572,15 @@ class ObjectActionConfig(BaseActionConfig):
         "alt": "Altitude coordinate when issuing Alt/Az pointings.",
         "az": "Azimuth coordinate when issuing Alt/Az pointings.",
         "lookup_name": "Instead of specifying ra/dec or alt/az, use SIMBAD/Astropy to look up coordinates for celestial body to observe (e.g., 'mars', 'M31').",
-        "tle": "TLE data for Earth-orbiting objects, as two newline-separated lines. Use 'TLE' as the lookup_name. Requires a mount supporting differential tracking rates.",
+        "tle": "Two-line element set for an Earth-orbiting object, given as the two element lines separated by a newline. Set lookup_name to 'TLE' when this is supplied. Requires a mount that can set differential tracking rates.",
         "filter": "Filter name to load before imaging.",
         "focus_shift": "Focus offset relative to the stored best focus.",
         "focus_position": "Absolute focus position override.",
         "n": "Number of exposures in the sequence. If not specified, defaults to infinite exposures until end_time.",
         "guiding": "Start autoguiding with Donuts before imaging. Should be False for solar system objects using non-sidereal tracking, as the star field drifts relative to the guide reference.",
-        "nonsidereal_recenter_interval": "Seconds between re-slews to the target's updated ephemeris position, which also refresh the tracking rates. Applies to any target resolved as moving: planets and moons, JPL Horizons minor bodies, and TLE-defined satellites. Set to 0 to rely on the differential tracking rates alone, with no periodic re-centering; this does not turn non-sidereal tracking off. No effect on fixed targets.",
-        "nonsidereal_start_lead_time_seconds": "For non-sidereal targets: initial lead time in seconds used to pre-point before sequence start. The telescope slews to the predicted target position at this offset, waits until the offset time is reached, then starts imaging and applies tracking rates. Set to 0 to start immediately.",
+        "nonsidereal_recenter_interval": "Interval in seconds at which the mount re-slews to the target's current ephemeris position, refreshing the tracking rates as it does so. Setting it to 0 suppresses the re-slews and leaves the differential rates to work alone, which does not disable non-sidereal tracking. Has no effect on fixed targets.",
+        "nonsidereal_start_lead_time_seconds": "Lead time in seconds for the initial slew, for targets too fast to slew to directly. The mount is sent to the position the target will occupy at start_time plus this value, idles until that moment, and only then begins exposing. Set it to at least the slew and settling time. The default of 0 slews straight at the target, which is accurate to well under an arcsecond for a planet or comet; only satellites, which cross degrees during a slew, need a lead time.",
+        "nonsidereal_rate_update_interval": "Minimum interval in seconds between differential rate commands sent to the mount. Astra will not issue a new rate more often than this, however rapidly the ephemeris changes. Lengthen it for mounts that stutter when a rate is applied; shorten it for targets whose rate changes over seconds, such as satellites in low orbit. Defaults to 10 seconds.",
         "pointing": "Perform pointing correction with twirl before imaging.",
         "bin": "Camera binning factor.",
         "dir": "Base directory path for saving images.",
@@ -654,6 +655,15 @@ class ObjectActionConfig(BaseActionConfig):
                 f"got {self.nonsidereal_start_lead_time_seconds}"
             )
 
+        if (
+            self.nonsidereal_rate_update_interval is not None
+            and self.nonsidereal_rate_update_interval < 0
+        ):
+            raise ValueError(
+                "nonsidereal_rate_update_interval must be >= 0, "
+                f"got {self.nonsidereal_rate_update_interval}"
+            )
+
     def _resolve_lookup_name(
         self,
         start_time: Time,
@@ -701,12 +711,14 @@ class ObjectActionConfig(BaseActionConfig):
                 return_rates=True,
             )
             self._nonsidereal = True
+            self._ephemeris_epoch = start_time
             ra = float(self._ra_interp(0.0)) % 360.0
             dec = float(self._dec_interp(0.0))
         except NotMovingBodyError:
             self._nonsidereal = False
             self._ra_rate_interp = None
             self._dec_rate_interp = None
+            self._ephemeris_epoch = None
 
             target_coord = get_body_coordinates(
                 body_name=self.lookup_name,

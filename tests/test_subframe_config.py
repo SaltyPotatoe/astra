@@ -134,10 +134,14 @@ class TestSubframeValidation:
                 subframe_height=100,
             )
 
-    def test_nonsidereal_start_lead_time_defaults_to_60_seconds(self):
-        """Test default lead wait used for non-sidereal pre-pointing."""
+    def test_nonsidereal_start_lead_time_defaults_to_zero(self):
+        """No lead time by default: the mount slews straight at the target.
+
+        A lead time costs idle seconds at the start of every sequence, and only
+        satellites move far enough during a slew to need one.
+        """
         config = ObjectActionConfig(object="M31", exptime=300.0, ra=10.68, dec=41.27)
-        assert config.nonsidereal_start_lead_time_seconds == 60.0
+        assert config.nonsidereal_start_lead_time_seconds == 0.0
 
     def test_nonsidereal_start_lead_time_negative_raises(self):
         """Negative lead wait is invalid."""

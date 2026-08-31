@@ -130,25 +130,26 @@ def is_sun_rising(obs_location: EarthLocation) -> Tuple[bool, bool, AltAz]:
     return sun_rising, flat_ready, sun_altaz0
 
 
-## planet, SIMBAD or minor-body positions
+## planet or SIMBAD positions
 def get_body_coordinates(
     body_name: str,
     obs_time: Time,
     obs_location: EarthLocation,
-    tle: str = None,
-    nonsidereal_target: bool = False,
 ) -> SkyCoord:
-    """Get the position of a celestial body (Solar System or Deep Sky).
+    """Get the fixed-frame position of a celestial body (Solar System or Deep Sky).
 
     Calculates the apparent celestial coordinates of a specified solar system body
     or resolves the coordinates of a deep sky object by name.
+
+    This returns a single position and is for targets that are tracked sidereally.
+    Moving targets that need differential tracking -- minor bodies and TLE-defined
+    satellites -- go through :func:`precompute_ephemeris` instead, which returns
+    interpolators over the whole observation window.
 
     Args:
         body_name (str): Name of the body (e.g., 'mars', 'jupiter', 'M31', 'Vega').
         obs_time (Time): Observation time (used for solar system bodies).
         obs_location (EarthLocation): Observer's geographic location (used for solar system bodies).
-        tle (str, optional): Two-line element set for satellites. Required if body_name is 'TLE'.
-        nonsidereal_target (bool, optional): If True, use JPL Horizons for moving targets or TLEs.
 
     Returns:
         SkyCoord: Position of the body in the sky.
@@ -157,41 +158,6 @@ def get_body_coordinates(
     # solar_system_ephemeris.bodies normally contains lowercase strings
     if body_name.lower() in _SOLAR_SYSTEM_BODIES:
         return get_body(body_name, obs_time, obs_location)
-    elif nonsidereal_target and tle is None:
-        location = {
-            "lon": obs_location.lon.deg,
-            "lat": obs_location.lat.deg,
-            "elevation": obs_location.height.to(u.km).value,
-        }
-        call_input = {"id": body_name, "location": location, "epochs": obs_time.jd}
-        obj = Horizons(**call_input)
-        eph = obj.ephemerides()
-        _save_and_log_horizons_output(
-            body_name, "get_body_coordinates", eph, call_input
-        )
-        return SkyCoord(
-            ra=eph["RA"].data * u.deg, dec=eph["DEC"].data * u.deg, frame="icrs"
-        )[0]
-    elif nonsidereal_target:
-        location = {
-            "lon": obs_location.lon.deg,
-            "lat": obs_location.lat.deg,
-            "elevation": obs_location.height.to(u.km).value,
-        }
-        call_input = {
-            "id": "TLE",
-            "location": location,
-            "epochs": obs_time.jd,
-            "optional_settings": {"TLE": tle},
-        }
-        obj = Horizons(id="TLE", location=location, epochs=obs_time.jd)
-        eph = obj.ephemerides(optional_settings={"TLE": tle})
-        _save_and_log_horizons_output(
-            body_name, "get_body_coordinates", eph, call_input
-        )
-        return SkyCoord(
-            ra=eph["RA"].data * u.deg, dec=eph["DEC"].data * u.deg, frame="icrs"
-        )[0]
 
     # Otherwise, try to resolve as a deep sky object (ICRS)
     return SkyCoord.from_name(body_name)
@@ -280,8 +246,6 @@ def precompute_ephemeris(
         seconds = minutes * 60.0
     else:
         try:
-            from astroquery.jplhorizons import Horizons
-
             location = {
                 "lon": obs_location.lon.deg,
                 "lat": obs_location.lat.deg,

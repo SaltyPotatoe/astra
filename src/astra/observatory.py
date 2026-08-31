@@ -1523,7 +1523,7 @@ class Observatory:
         """
         if nonsidereal is not None and nonsidereal.is_active:
             lead_seconds = float(
-                action_value.get("nonsidereal_start_lead_time_seconds", 60.0)
+                action_value.get("nonsidereal_start_lead_time_seconds", 0.0)
             )
             return nonsidereal.prepoint_coordinates(lead_seconds)
 
@@ -1534,13 +1534,31 @@ class Observatory:
         az = action_value.get("az")
 
         if lookup_name is not None and "Telescope" in paired_devices:
+            if action_value.get("tle") is not None or lookup_name.upper() == "TLE":
+                # A TLE describes an orbit, not a position, so there is no sidereal
+                # coordinate to fall back on. Reaching here means the non-sidereal
+                # manager is inactive, so the mount cannot be put on this target at
+                # all -- returning no coordinates also avoids SkyCoord.from_name("TLE").
+                if action_value.get("disable_telescope_movement", False):
+                    # Movement was deliberately disabled; no slew was going to happen.
+                    return None, None
+
+                # Not merely a skipped slew: without a pointing solution the sequence
+                # would expose on whatever the mount happens to be looking at. Log at
+                # error level so error_free stops it via check_conditions().
+                self.logger.error(
+                    f"Cannot point at '{action_value.get('object')}': it is defined by "
+                    "a TLE and can only be tracked non-sidereally, which is not active "
+                    "for this sequence. The mount is not on target, so no images will "
+                    "be taken."
+                )
+                return None, None
+
             obs_location = self.get_observatory_location(paired_devices["Telescope"])
             target_coord = ephemeris.get_body_coordinates(
                 body_name=lookup_name,
                 obs_time=Time.now(),
                 obs_location=obs_location,
-                tle=action_value.get("tle"),
-                nonsidereal_target=False,
             )
             ra = target_coord.ra.deg  # type: ignore
             dec = target_coord.dec.deg  # type: ignore
@@ -2277,14 +2295,14 @@ class Observatory:
     ) -> None:
         """Wait until the non-sidereal activation time, then apply tracking rates.
 
-        If activation has already passed by more than 30 s (late start), re-slews
-        to the current satellite position before enabling rates.
+        If the sequence reaches that point late enough that the target has drifted
+        appreciably, re-slew to its current position before enabling rates.
         """
         if not nonsidereal.is_active or "Telescope" not in paired_devices:
             return
 
         lead_seconds = float(
-            action.action_value.get("nonsidereal_start_lead_time_seconds", 60.0)
+            action.action_value.get("nonsidereal_start_lead_time_seconds", 0.0)
         )
         activation_time = nonsidereal.tracking_activation_time(
             lead_time_seconds=lead_seconds
@@ -2298,12 +2316,10 @@ class Observatory:
                 "Non-sidereal pre-point complete. Waiting "
                 f"{initial_wait_seconds:.1f}s to start imaging and tracking rates."
             )
-        elif initial_wait_seconds < -30:
-            self.logger.warning(
-                f"Non-sidereal activation time passed {-initial_wait_seconds:.0f}s ago. "
-                "Re-centering to current satellite position."
+        else:
+            nonsidereal.recenter_if_late(
+                activation_time, paired_devices, self.wait_for_slew
             )
-            nonsidereal.recenter(paired_devices, self.wait_for_slew)
 
         while Time.now() < activation_time:
             if not self.check_conditions(action):

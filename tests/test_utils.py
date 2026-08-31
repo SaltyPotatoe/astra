@@ -389,7 +389,7 @@ def test_precompute_ephemeris_return_rates_from_horizons(location, monkeypatch):
                 }
             )
 
-    monkeypatch.setattr("astroquery.jplhorizons.Horizons", FakeHorizons)
+    monkeypatch.setattr("astra.utils.ephemeris.Horizons", FakeHorizons)
 
     ra_interp, dec_interp, ra_rate_interp, dec_rate_interp = precompute_ephemeris(
         "90000033",
@@ -462,7 +462,7 @@ def test_precompute_ephemeris_propagates_network_errors(location, monkeypatch):
     Collapsing it into NotMovingBodyError makes the caller fall back to sidereal
     coordinates for a genuinely moving target, silently mistracking it.
     """
-    import astroquery.jplhorizons
+    import astra.utils.ephemeris
 
     class _OfflineHorizons:
         def __init__(self, *args, **kwargs):
@@ -471,7 +471,7 @@ def test_precompute_ephemeris_propagates_network_errors(location, monkeypatch):
         def ephemerides(self, *args, **kwargs):
             raise requests.exceptions.ConnectionError("no route to host")
 
-    monkeypatch.setattr(astroquery.jplhorizons, "Horizons", _OfflineHorizons)
+    monkeypatch.setattr(astra.utils.ephemeris, "Horizons", _OfflineHorizons)
 
     obs_time = Time("2026-04-01T00:00:00", format="isot", scale="utc")
     with pytest.raises(requests.exceptions.RequestException):
@@ -480,7 +480,7 @@ def test_precompute_ephemeris_propagates_network_errors(location, monkeypatch):
 
 def test_precompute_ephemeris_unresolved_name_is_not_moving_body(location, monkeypatch):
     """A genuine resolution failure still maps to NotMovingBodyError."""
-    import astroquery.jplhorizons
+    import astra.utils.ephemeris
 
     class _UnresolvableHorizons:
         def __init__(self, *args, **kwargs):
@@ -489,7 +489,7 @@ def test_precompute_ephemeris_unresolved_name_is_not_moving_body(location, monke
         def ephemerides(self, *args, **kwargs):
             raise ValueError("Unknown target")
 
-    monkeypatch.setattr(astroquery.jplhorizons, "Horizons", _UnresolvableHorizons)
+    monkeypatch.setattr(astra.utils.ephemeris, "Horizons", _UnresolvableHorizons)
 
     obs_time = Time("2026-04-01T00:00:00", format="isot", scale="utc")
     with pytest.raises(NotMovingBodyError, match="could not be resolved"):
