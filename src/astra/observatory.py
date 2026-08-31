@@ -2318,7 +2318,10 @@ class Observatory:
             )
         else:
             nonsidereal.recenter_if_late(
-                activation_time, paired_devices, self.wait_for_slew
+                activation_time,
+                paired_devices,
+                self.wait_for_slew,
+                can_slew=lambda: self.check_conditions(action),
             )
 
         while Time.now() < activation_time:
@@ -2417,17 +2420,26 @@ class Observatory:
                             if nonsidereal.is_active and "Telescope" in paired_devices:
                                 nonsidereal.apply_rates(paired_devices.telescope)
 
-                # Non-sidereal re-centering
-                if nonsidereal.is_active and "Telescope" in paired_devices:
-                    if nonsidereal.should_recenter():
-                        if guiding:
-                            self.guider_manager.stop_guider(
-                                paired_devices["Telescope"],
-                                thread_manager=self.thread_manager,
-                            )
-                        # TODO: Inspect logic, why guiding = False here? Doesn't stop_guider do this?
-                        if nonsidereal.recenter(paired_devices, self.wait_for_slew):
-                            guiding = False
+                # Non-sidereal re-centering. Guarded on conditions like the
+                # meridian flip above: a weather park makes the mount reject a slew.
+                if (
+                    nonsidereal.is_active
+                    and "Telescope" in paired_devices
+                    and nonsidereal.should_recenter()
+                    and self.check_conditions(action)
+                ):
+                    if guiding:
+                        self.guider_manager.stop_guider(
+                            paired_devices["Telescope"],
+                            thread_manager=self.thread_manager,
+                        )
+                    # TODO: Inspect logic, why guiding = False here? Doesn't stop_guider do this?
+                    if nonsidereal.recenter(
+                        paired_devices,
+                        self.wait_for_slew,
+                        can_slew=lambda: self.check_conditions(action),
+                    ):
+                        guiding = False
 
                 log_option = (
                     f"{exposure + 1}/{n_exposures_list[i]}"

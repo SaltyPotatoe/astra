@@ -221,6 +221,7 @@ class NonSiderealManager:
         activation_time: Time,
         paired_devices: PairedDevices,
         wait_for_slew_fn: Callable[[PairedDevices], None],
+        can_slew: Callable[[], bool] | None = None,
     ) -> bool:
         """Re-point the mount if the target has drifted since ``activation_time``.
 
@@ -249,18 +250,23 @@ class NonSiderealManager:
             f"Imaging of {self._state.body_name} starts {late_s:.0f}s after the "
             f'intended moment, by which time it has moved {drift:.0f}". Re-centering.'
         )
-        return self.recenter(paired_devices, wait_for_slew_fn)
+        return self.recenter(paired_devices, wait_for_slew_fn, can_slew=can_slew)
 
     def recenter(
         self,
         paired_devices: PairedDevices,
         wait_for_slew_fn: Callable[[PairedDevices], None],
+        can_slew: Callable[[], bool] | None = None,
     ) -> bool:
         """Slew to the updated ephemeris position and refresh tracking rates.
 
         Args:
             paired_devices: PairedDevices for the sequence.
             wait_for_slew_fn: Callable(paired_devices) that blocks until slew completes.
+            can_slew: Optional predicate checked before each slew. Conditions can
+                change between the two slews below -- a weather alert parks the mount,
+                and a parked mount rejects a slew outright -- so it is checked again
+                rather than only on entry.
 
         Returns:
             True if re-centering was performed (caller should reset guiding flag).
@@ -269,9 +275,21 @@ class NonSiderealManager:
             return False
 
         state = self._state
+
+        def unsafe_to_slew() -> bool:
+            if can_slew is None or can_slew():
+                return False
+            self.logger.info(
+                f"Conditions are no longer safe for movement; abandoning the "
+                f"re-centre on {state.body_name}."
+            )
+            return True
+
         try:
             telescope = paired_devices.telescope
-            # TODO: Check dome open
+
+            if unsafe_to_slew():
+                return False
 
             # Coarse slew to the satellite's current position.
             t_seconds = (Time.now() - state.sequence_start_time).to(u.s).value
@@ -287,6 +305,9 @@ class NonSiderealManager:
             )
             time.sleep(_SLEW_POLL_START_DELAY)
             wait_for_slew_fn(paired_devices)
+
+            if unsafe_to_slew():
+                return False
 
             # Fine correction: the satellite moved during the coarse slew. Re-target
             # the current position so the offset isn't locked in by the tracking rates.

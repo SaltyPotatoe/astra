@@ -79,6 +79,38 @@ def schedule_manager(observatory: Observatory):
     yield create_test_schedule
 
 
+# A real ISS element set, but JPL Horizons refuses to propagate a TLE more than
+# 14 days past its epoch, so a literal one silently rots a fortnight after it is
+# written. The epoch is re-stamped to the start of the test session instead, which
+# keeps these tests runnable indefinitely. The resulting orbit is no longer the real
+# ISS, which does not matter here: every assertion compares the mount against
+# interpolators computed from this same element set. It is evaluated once at import
+# so that the schedule and the reference ephemeris always use an identical TLE.
+_ISS_TLE_REFERENCE = (
+    "1 25544U 98067A   26141.16510469  .00005835  00000-0  11282-3 0  9994\n"
+    "2 25544  51.6328  73.8715 0007529  81.3651 278.8190 15.49291753567565"
+)
+
+
+def _tle_line_with_checksum(line: str) -> str:
+    """Append a TLE line's checksum: digits summed mod 10, with '-' counting as 1."""
+    body = line[:68]
+    total = sum(int(c) if c.isdigit() else 1 if c == "-" else 0 for c in body)
+    return f"{body}{total % 10}"
+
+
+def _tle_with_epoch(tle: str, when: datetime) -> str:
+    """Return `tle` with its epoch field re-stamped to `when`."""
+    line1, line2 = tle.split("\n")
+    day_of_year = when.timetuple().tm_yday
+    seconds = when.hour * 3600 + when.minute * 60 + when.second + when.microsecond / 1e6
+    epoch = f"{when.year % 100:02d}{day_of_year + seconds / 86400.0:012.8f}"
+    return f"{_tle_line_with_checksum(line1[:18] + epoch + line1[32:])}\n{line2}"
+
+
+ISS_TLE = _tle_with_epoch(_ISS_TLE_REFERENCE, datetime.now(UTC))
+
+
 def create_schedule_data(
     action_type: str,
     temp_config,
@@ -172,7 +204,7 @@ def create_schedule_data(
             "action_value": {
                 "object": "ISS",
                 "lookup_name": "TLE",
-                "tle": "1 25544U 98067A   26141.16510469  .00005835  00000-0  11282-3 0  9994\n2 25544  51.6328  73.8715 0007529  81.3651 278.8190 15.49291753567565",
+                "tle": ISS_TLE,
                 "exptime": 1,
                 "filter": "Clear",
                 "guiding": False,
@@ -635,6 +667,28 @@ def _wait_until_datetime(target_time: datetime, timeout_s: float = 120.0) -> Non
         if time.time() > deadline:
             raise TimeoutError(f"Timed out waiting for {target_time.isoformat()}.")
         time.sleep(min(1.0, remaining_s))
+
+
+def _wait_until_not_slewing(server_url: str, timeout_s: float = 60.0) -> None:
+    """Block until the mount reports it has stopped slewing.
+
+    These tests measure how well the tracking rates hold the target, which is only
+    meaningful once the mount has arrived. Reaching the activation time is not
+    sufficient on its own: if the slew takes longer than
+    nonsidereal_start_lead_time_seconds, sampling from the activation time measures
+    the tail of the slew instead, and the first samples sit degrees off target.
+    """
+    deadline = time.time() + timeout_s
+    while time.time() < deadline:
+        slewing = (
+            requests.get(f"{server_url}/api/v1/telescope/0/slewing", timeout=5)
+            .json()
+            .get("Value")
+        )
+        if not slewing:
+            return
+        time.sleep(0.2)
+    raise TimeoutError("Timed out waiting for the mount to stop slewing.")
 
 
 def _max_sample_count_for_interval(
@@ -1177,7 +1231,7 @@ class TestScheduleActionTypes:
         set_location_for_body_visibility(
             server_url,
             "tle",
-            tle="1 25544U 98067A   26141.16510469  .00005835  00000-0  11282-3 0  9994\n2 25544  51.6328  73.8715 0007529  81.3651 278.8190 15.49291753567565",
+            tle=ISS_TLE,
         )
         schedule_data = create_schedule_data("tle", temp_config)
 
@@ -1218,7 +1272,7 @@ class TestScheduleActionTypes:
         self, observatory, schedule_manager, server_url, temp_config
     ):
         """TLE non-sidereal tracking must stop safely during weather alert."""
-        tle = "1 25544U 98067A   26141.16510469  .00005835  00000-0  11282-3 0  9994\n2 25544  51.6328  73.8715 0007529  81.3651 278.8190 15.49291753567565"
+        tle = ISS_TLE
         set_safety_monitor_safe(server_url)
         set_location_for_body_visibility(server_url, "tle", tle=tle)
         schedule_data = create_schedule_data(
@@ -1271,7 +1325,7 @@ class TestScheduleActionTypes:
         self, observatory, schedule_manager, server_url, temp_config
     ):
         """Helper precomputed path should closely match schedule-generated ephemeris."""
-        tle = "1 25544U 98067A   26141.16510469  .00005835  00000-0  11282-3 0  9994\n2 25544  51.6328  73.8715 0007529  81.3651 278.8190 15.49291753567565"
+        tle = ISS_TLE
         set_safety_monitor_safe(server_url)
         set_location_for_body_visibility(server_url, "TLE", tle=tle)
         obs_location = _get_site_location(server_url)
@@ -1394,6 +1448,7 @@ class TestScheduleActionTypes:
             observatory.start_schedule()
             _wait_for_schedule_running(observatory)
             _wait_until_datetime(_get_tracking_activation_time(schedule_data))
+            _wait_until_not_slewing(server_url)
             sample_count = _max_sample_count_for_interval(
                 schedule_data,
                 sample_interval_s,
@@ -1426,7 +1481,7 @@ class TestScheduleActionTypes:
         self, observatory, schedule_manager, server_url, temp_config
     ):
         """Mount pointing should remain close to TLE target at multiple times."""
-        tle = "1 25544U 98067A   26141.16510469  .00005835  00000-0  11282-3 0  9994\n2 25544  51.6328  73.8715 0007529  81.3651 278.8190 15.49291753567565"
+        tle = ISS_TLE
         set_safety_monitor_safe(server_url)
         set_location_for_body_visibility(server_url, "TLE", tle=tle)
         obs_location = _get_site_location(server_url)
@@ -1449,6 +1504,7 @@ class TestScheduleActionTypes:
             observatory.start_schedule()
             _wait_for_schedule_running(observatory)
             _wait_until_datetime(_get_tracking_activation_time(schedule_data))
+            _wait_until_not_slewing(server_url)
             sample_count = _max_sample_count_for_interval(
                 schedule_data,
                 sample_interval_s,
@@ -1495,7 +1551,7 @@ class TestScheduleActionTypes:
         self, observatory, schedule_manager, server_url, temp_config, monkeypatch
     ):
         """The telescope should be on the pre-point target before rates turn on."""
-        tle = "1 25544U 98067A   26141.16510469  .00005835  00000-0  11282-3 0  9994\n2 25544  51.6328  73.8715 0007529  81.3651 278.8190 15.49291753567565"
+        tle = ISS_TLE
         set_safety_monitor_safe(server_url)
         set_location_for_body_visibility(server_url, "TLE", tle=tle)
         # obs_location = _get_site_location(server_url)

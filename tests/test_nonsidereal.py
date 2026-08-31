@@ -853,3 +853,69 @@ class TestRecenterIfLate:
 
         expected = 1e-3 * 100 * 3600 * math.cos(math.radians(20.0))
         assert drift == pytest.approx(expected, rel=1e-3)
+
+
+class TestRecenterSafetyGuard:
+    """A parked mount rejects a slew outright, so re-centring must check first."""
+
+    def _paired_devices(self):
+        paired = MagicMock()
+        paired.telescope = MagicMock()
+        return paired
+
+    def _slews(self, telescope):
+        return [
+            c
+            for c in telescope.get.call_args_list
+            if c.args and c.args[0] == "SlewToCoordinatesAsync"
+        ]
+
+    def test_no_slew_when_conditions_are_unsafe_on_entry(self):
+        mgr = _make_active_manager()
+        paired = self._paired_devices()
+
+        with patch("time.sleep"):
+            result = mgr.recenter(paired, MagicMock(), can_slew=lambda: False)
+
+        assert result is False
+        assert self._slews(paired.telescope) == []
+
+    def test_fine_correction_is_abandoned_if_conditions_change_mid_recentre(self):
+        """A weather park can land between the coarse slew and the correction.
+
+        The second slew would then be sent to a parked mount, which raises and
+        clears error_free, aborting the night.
+        """
+        mgr = _make_active_manager()
+        paired = self._paired_devices()
+        calls = {"n": 0}
+
+        def can_slew():
+            calls["n"] += 1
+            return calls["n"] == 1  # safe for the coarse slew, parked by the fine one
+
+        with patch("time.sleep"):
+            result = mgr.recenter(paired, MagicMock(), can_slew=can_slew)
+
+        assert result is False
+        assert len(self._slews(paired.telescope)) == 1
+
+    def test_both_slews_run_when_conditions_stay_safe(self):
+        mgr = _make_active_manager()
+        paired = self._paired_devices()
+
+        with patch("time.sleep"):
+            result = mgr.recenter(paired, MagicMock(), can_slew=lambda: True)
+
+        assert result is True
+        assert len(self._slews(paired.telescope)) == 2
+
+    def test_absent_predicate_keeps_the_old_behaviour(self):
+        mgr = _make_active_manager()
+        paired = self._paired_devices()
+
+        with patch("time.sleep"):
+            result = mgr.recenter(paired, MagicMock())
+
+        assert result is True
+        assert len(self._slews(paired.telescope)) == 2
