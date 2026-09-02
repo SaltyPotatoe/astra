@@ -12,8 +12,9 @@ in test_observatory_running_schedule.py:
 """
 
 import math
+from contextlib import contextmanager
 from datetime import UTC, datetime
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, PropertyMock, patch
 
 import numpy as np
 import pytest
@@ -1115,3 +1116,187 @@ class TestClearTrackingRateOffsets:
         obs._clear_tracking_rate_offsets(telescope, "mount")
         assert telescope.get.call_count == 2  # two flags, read once
         assert telescope.set.call_count == 4
+
+
+@contextmanager
+def _mount_observatory(equatorial_system=1, config_override=None):
+    """Yield (observatory, telescope) with the mount reporting ``equatorial_system``.
+
+    ``Observatory.devices`` and ``Observatory.config`` are class properties that
+    read live state, so they are patched on the class. The context manager
+    guarantees the patches are undone in reverse order when the test ends. A
+    leaked patch here would replace ``config`` with a dict for every later test.
+    """
+    obs = Observatory.__new__(Observatory)
+    obs.logger = MagicMock()
+    obs._equatorial_systems = {}
+    obs._observatory_locations = {
+        "mount": EarthLocation(lat=47.4 * u.deg, lon=8.5 * u.deg, height=500 * u.m)
+    }
+    telescope = MagicMock()
+    telescope.get.side_effect = lambda key, **kwargs: {
+        "EquatorialSystem": equatorial_system
+    }.get(key, MagicMock())
+    cfg = {"device_name": "mount"}
+    if config_override is not None:
+        cfg["equatorial_system"] = config_override
+
+    with (
+        patch.object(
+            Observatory,
+            "devices",
+            new_callable=PropertyMock,
+            return_value={"Telescope": {"mount": telescope}},
+        ),
+        patch.object(
+            Observatory,
+            "config",
+            new_callable=PropertyMock,
+            return_value={"Telescope": [cfg]},
+        ),
+    ):
+        yield obs, telescope
+
+
+class TestMountEquatorialSystem:
+    """The observatory reads EquatorialSystem once and converts only when needed."""
+
+    def test_reads_driver_value_once(self):
+        from astra.utils.frames import EquatorialSystem
+
+        with _mount_observatory(equatorial_system=1) as (obs, telescope):
+            assert (
+                obs.get_mount_equatorial_system("mount") == EquatorialSystem.TOPOCENTRIC
+            )
+            assert (
+                obs.get_mount_equatorial_system("mount") == EquatorialSystem.TOPOCENTRIC
+            )
+            assert telescope.get.call_count == 1
+
+    def test_j2000_driver_sends_icrs_unchanged(self):
+        with _mount_observatory(equatorial_system=2) as (obs, _):
+            assert obs.to_mount_coordinates("mount", 100.0, 20.0) == (100.0, 20.0)
+
+    def test_mock_property_means_unchanged(self):
+        """A MagicMock is not an int or str, so it must mean 'unknown'."""
+        with _mount_observatory(equatorial_system=MagicMock()) as (obs, _):
+            assert obs.get_mount_equatorial_system("mount") is None
+            assert obs.to_mount_coordinates("mount", 100.0, 20.0) == (100.0, 20.0)
+
+    def test_unreadable_property_means_unchanged(self):
+        """A driver that raises on EquatorialSystem falls back to pass-through."""
+        with _mount_observatory() as (obs, telescope):
+            telescope.get.side_effect = RuntimeError("not implemented")
+            assert obs.get_mount_equatorial_system("mount") is None
+
+    def test_jnow_driver_converts_slew_target(self):
+        with _mount_observatory(equatorial_system=1) as (obs, _):
+            ra, dec = obs.to_mount_coordinates("mount", 279.2347, 38.7837)
+            assert (ra, dec) != (279.2347, 38.7837)
+            back = obs.from_mount_coordinates("mount", ra, dec)
+            assert back == pytest.approx((279.2347, 38.7837), abs=1e-6)
+
+    def test_config_override_beats_driver(self):
+        from astra.utils.frames import EquatorialSystem
+
+        with _mount_observatory(equatorial_system=1, config_override="J2000") as (
+            obs,
+            telescope,
+        ):
+            assert obs.get_mount_equatorial_system("mount") == EquatorialSystem.J2000
+            telescope.get.assert_not_called()
+
+    def test_unknown_config_value_warns_and_passes_through(self):
+        with _mount_observatory(equatorial_system=1, config_override="galactic") as (
+            obs,
+            _,
+        ):
+            assert obs.get_mount_equatorial_system("mount") is None
+            obs.logger.warning.assert_called_once()
+
+    def test_class_properties_are_restored(self):
+        """Guard against the patch leaking into other test modules."""
+        with _mount_observatory():
+            pass
+        assert isinstance(Observatory.__dict__["config"], property)
+        assert isinstance(Observatory.__dict__["devices"], property)
+
+
+class TestExecuteSlewFrameConversion:
+    def _observatory(self):
+        obs = Observatory.__new__(Observatory)
+        obs.logger = MagicMock()
+        obs.check_conditions = MagicMock(return_value=True)
+        obs.open_observatory = MagicMock()
+        obs.execute_and_monitor_device_task = MagicMock()
+        obs.wait_for_slew = MagicMock()
+        obs._rate_offset_support = {"mount": False}
+        obs._equatorial_systems = {}
+        obs._observatory_locations = {}
+        return obs
+
+    def _paired(self):
+        paired = MagicMock()
+        paired.__contains__ = lambda self, key: key == "Telescope"
+        paired.__getitem__ = lambda self, key: "mount"
+        return paired
+
+    def test_jnow_mount_receives_converted_coordinates(self):
+        from astra.utils.frames import EquatorialSystem
+
+        obs = self._observatory()
+        obs._equatorial_systems["mount"] = EquatorialSystem.TOPOCENTRIC
+        paired = self._paired()
+
+        with patch("time.sleep"):
+            obs._execute_slew(paired, 279.2347, 38.7837)
+
+        slew = [
+            c
+            for c in paired.telescope.get.call_args_list
+            if c.args and c.args[0] == "SlewToCoordinatesAsync"
+        ][0]
+        sent_ra_deg = slew.kwargs["RightAscension"] * 15.0
+        assert abs(sent_ra_deg - 279.2347) > 0.05  # precession applied
+        assert abs(slew.kwargs["Declination"] - 38.7837) > 0.005
+
+    def test_j2000_mount_receives_icrs_unchanged(self):
+        obs = self._observatory()
+        obs._equatorial_systems["mount"] = None
+        paired = self._paired()
+
+        with patch("time.sleep"):
+            obs._execute_slew(paired, 279.2347, 38.7837)
+
+        slew = [
+            c
+            for c in paired.telescope.get.call_args_list
+            if c.args and c.args[0] == "SlewToCoordinatesAsync"
+        ][0]
+        assert slew.kwargs["RightAscension"] == pytest.approx(279.2347 / 15.0)
+        assert slew.kwargs["Declination"] == 38.7837
+
+
+class TestRecenterUsesMountFrame:
+    def test_converter_is_applied_to_recenter_slews(self):
+        action = _make_action(
+            ra_interp=_make_interp(slope=1e-4, intercept=100.0),
+            dec_interp=_make_interp(slope=0.0, intercept=20.0),
+        )
+        converter = MagicMock(side_effect=lambda ra, dec: (ra + 1.0, dec + 1.0))
+        mgr = NonSiderealManager(action, MagicMock(), to_mount_frame=converter)
+        paired = MagicMock()
+        paired.telescope = MagicMock()
+
+        epoch = Time(mgr._state.sequence_start_time)
+        with patch("time.sleep"), patch("astra.nonsidereal.Time.now", lambda: epoch):
+            assert mgr.recenter(paired, MagicMock()) is True
+
+        converter.assert_called()
+        slew = [
+            c
+            for c in paired.telescope.get.call_args_list
+            if c.args and c.args[0] == "SlewToCoordinatesAsync"
+        ][0]
+        assert slew.kwargs["Declination"] == pytest.approx(21.0)
+        assert slew.kwargs["RightAscension"] == pytest.approx(101.0 / 15.0, abs=1e-3)

@@ -71,7 +71,7 @@ from astra.queue_manager import QueueManager
 from astra.safety_monitor import SafetyMonitor
 from astra.scheduler import Action, BaseActionConfig, ScheduleManager
 from astra.thread_manager import ThreadManager
-from astra.utils import ephemeris
+from astra.utils import ephemeris, frames
 
 logging.getLogger("sqlite3worker").setLevel(logging.INFO)
 
@@ -249,6 +249,9 @@ class Observatory:
         self._observatory_locations: dict[
             str, EarthLocation
         ] = {}  # Cache for observatory locations
+        # Cache for each mount's ASCOM EquatorialSystem. None means unknown or
+        # J2000, in which case ICRS coordinates are sent unchanged.
+        self._equatorial_systems: dict[str, frames.EquatorialSystem | None] = {}
 
         # for each telescope, create a donuts guider
         self.guider_manager = GuiderManager.from_observatory(self)
@@ -335,6 +338,114 @@ class Observatory:
                 f"Could not get observatory location for {telescope_name}: {e}"
             )
             return None
+
+    def get_mount_equatorial_system(
+        self, telescope_name: str
+    ) -> frames.EquatorialSystem | None:
+        """Return the coordinate frame a mount expects, read once and cached.
+
+        The telescope config key ``equatorial_system`` overrides the driver. Use it
+        for a driver that misreports. Allowed values are "auto" (default), "J2000",
+        "JNow", "J2050", "B1950" and "other". With "auto" the ASCOM
+        ``EquatorialSystem`` property is read. If that fails, or returns something
+        that is not an int or str, the result is None and coordinates are sent
+        unchanged. That keeps the previous behaviour on J2000 mounts and on the
+        simulator, which does not implement the property.
+        """
+        if telescope_name in self._equatorial_systems:
+            return self._equatorial_systems[telescope_name]
+
+        system: frames.EquatorialSystem | None = None
+        source = "driver"
+        try:
+            override = self._telescope_config(telescope_name).get(
+                "equatorial_system", "auto"
+            )
+            if str(override).strip().lower() != "auto":
+                system = frames.parse_equatorial_system(override)
+                source = "config"
+                if system is None:
+                    self.logger.warning(
+                        f"Telescope {telescope_name}: unknown equatorial_system "
+                        f"{override!r} in config. Expected J2000, JNow, J2050, "
+                        "B1950 or other. Coordinates are sent unchanged."
+                    )
+            else:
+                telescope = self.devices["Telescope"][telescope_name]
+                system = frames.parse_equatorial_system(
+                    telescope.get("EquatorialSystem")
+                )
+        except Exception as e:
+            self.logger.debug(
+                f"Could not read EquatorialSystem from Telescope {telescope_name}: "
+                f"{e}. Coordinates are sent unchanged."
+            )
+
+        if frames.needs_conversion(system):
+            self.logger.info(
+                f"Telescope {telescope_name} expects {system.name} coordinates "
+                f"({source}). ICRS targets are converted before each slew."
+            )
+        else:
+            self.logger.debug(
+                f"Telescope {telescope_name} equatorial system: "
+                f"{'unknown' if system is None else system.name} ({source}). "
+                "ICRS coordinates are sent unchanged."
+            )
+        self._equatorial_systems[telescope_name] = system
+        return system
+
+    def _telescope_config(self, telescope_name: str) -> dict:
+        """Return the config block for a telescope by name, or an empty dict."""
+        for item in self.config.get("Telescope", []) or []:
+            if isinstance(item, dict) and telescope_name in (
+                item.get("device_name"),
+                item.get("name"),
+            ):
+                return item
+        return {}
+
+    def to_mount_coordinates(
+        self,
+        telescope_name: str,
+        ra_deg: float,
+        dec_deg: float,
+        obstime: Time | None = None,
+    ) -> tuple[float, float]:
+        """Convert an ICRS position to the frame the mount expects.
+
+        Call this just before ``SlewToCoordinates`` or ``SyncToCoordinates``.
+        Returns the input unchanged for a J2000 mount.
+        """
+        system = self.get_mount_equatorial_system(telescope_name)
+        if not frames.needs_conversion(system):
+            return ra_deg, dec_deg
+        return frames.to_mount_frame(
+            ra_deg,
+            dec_deg,
+            system,
+            obstime=obstime,
+            location=self.get_observatory_location(telescope_name),
+        )
+
+    def from_mount_coordinates(
+        self,
+        telescope_name: str,
+        ra_deg: float,
+        dec_deg: float,
+        obstime: Time | None = None,
+    ) -> tuple[float, float]:
+        """Convert a position read from the mount into ICRS."""
+        system = self.get_mount_equatorial_system(telescope_name)
+        if not frames.needs_conversion(system):
+            return ra_deg, dec_deg
+        return frames.from_mount_frame(
+            ra_deg,
+            dec_deg,
+            system,
+            obstime=obstime,
+            location=self.get_observatory_location(telescope_name),
+        )
 
     @property
     def devices(self) -> dict[str, dict[str, AlpacaDevice]]:
@@ -1617,10 +1728,16 @@ class Observatory:
         self.logger.info(
             f"Slewing Telescope {telescope_name} to RA/Dec {ra_deg:.2f}°/{dec_deg:.2f}°"
         )
+        mount_ra, mount_dec = self.to_mount_coordinates(telescope_name, ra_deg, dec_deg)
+        if (mount_ra, mount_dec) != (ra_deg, dec_deg):
+            self.logger.debug(
+                f"Converted ICRS target to mount frame: "
+                f"RA/Dec {mount_ra:.4f}°/{mount_dec:.4f}°"
+            )
         telescope.get(
             "SlewToCoordinatesAsync",
-            RightAscension=ra_deg / 15.0,
-            Declination=dec_deg,
+            RightAscension=mount_ra / 15.0,
+            Declination=mount_dec,
         )
         # Let the driver raise Slewing before wait_for_slew starts polling it;
         # wait_for_slew applies the post-slew settle itself.
@@ -2606,11 +2723,19 @@ class Observatory:
             f"starting {action.start_time} and ending {action.end_time}"
         )
 
+        has_telescope = "Telescope" in paired_devices
         nonsidereal = NonSiderealManager(
             action,
             self.logger,
-            telescope=(
-                paired_devices.telescope if "Telescope" in paired_devices else None
+            telescope=paired_devices.telescope if has_telescope else None,
+            to_mount_frame=(
+                (
+                    lambda ra, dec: self.to_mount_coordinates(
+                        paired_devices["Telescope"], ra, dec
+                    )
+                )
+                if has_telescope
+                else None
             ),
         )
         self.pre_sequence(
@@ -2895,8 +3020,13 @@ class Observatory:
                     telescope = paired_devices.telescope
                     ra_hours = telescope.get("RightAscension")
                     dec_degs = telescope.get("Declination")
-                    action_value["ra"] = ra_hours * 15  # convert to degrees
-                    action_value["dec"] = dec_degs
+                    # The mount reports its own frame. The plate solve is ICRS,
+                    # so bring the target into ICRS before comparing.
+                    action_value["ra"], action_value["dec"] = (
+                        self.from_mount_coordinates(
+                            paired_devices["Telescope"], ra_hours * 15, dec_degs
+                        )
+                    )
                     self.logger.info(
                         f"Using current telescope coordinates for pointing correction: "
                         f"RA={action_value['ra']} DEC={action_value['dec']}"
@@ -2974,12 +3104,16 @@ class Observatory:
         telescope = paired_devices.telescope
 
         if sync:
+            # The solved position is ICRS. Sync the mount in its own frame.
+            sync_ra, sync_dec = self.to_mount_coordinates(
+                paired_devices["Telescope"],
+                action_value["ra"] + pointing_correction.offset_ra,
+                action_value["dec"] + pointing_correction.offset_dec,
+            )
             telescope.get(
                 "SyncToCoordinates",
-                RightAscension=24
-                * (action_value["ra"] + pointing_correction.offset_ra)
-                / 360,
-                Declination=action_value["dec"] + pointing_correction.offset_dec,
+                RightAscension=24 * sync_ra / 360,
+                Declination=sync_dec,
             )
 
             if slew:
@@ -2987,8 +3121,13 @@ class Observatory:
                 self.setup_observatory(paired_devices, action_value)
         else:
             # new_ra = action_value["ra"] - (real_center.ra - action_value["ra"])
-            new_ra = pointing_correction.proxy_ra
-            new_dec = pointing_correction.proxy_dec
+            # The proxy target is ICRS; the offset is the same in any frame to
+            # first order, so convert the proxy as a whole.
+            new_ra, new_dec = self.to_mount_coordinates(
+                paired_devices["Telescope"],
+                pointing_correction.proxy_ra,
+                pointing_correction.proxy_dec,
+            )
 
             if slew:
                 # slew to target

@@ -188,6 +188,12 @@ or asteroid. Fast-moving targets need shorter intervals.
   `nonsidereal_rate_update_interval` seconds (10 s by default). Shorten it for
   targets whose rate changes rapidly; lengthen it for a mount sensitive to rate
   commands.
+- **All positions are ICRS (J2000) until they reach the mount.** Planet positions
+  from Astropy, Horizons positions and SIMBAD positions are all astrometric ICRS,
+  so they agree to better than an arcsecond. If the mount reports that it expects
+  JNow coordinates, Astra converts each slew target to the apparent frame of date.
+  See `equatorial_system` in the
+  [telescope configuration](observatory_configuration.md#telescope-configuration).
 - **Minor bodies and TLEs require network access at load time.** Astra queries JPL
   Horizons once when the schedule is read, computing an ephemeris that is then
   interpolated throughout the night. A network failure while observing is therefore

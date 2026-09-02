@@ -644,3 +644,45 @@ def test_precompute_ephemeris_different_tle_objects(location):
     )
     assert callable(ra_interp)
     assert callable(dec_interp)
+
+
+# --- Astrometric ICRS from astropy get_body ---
+
+
+def test_astrometric_icrs_removes_aberration_and_roundtrips(location):
+    """astrometric_icrs must differ from GCRS by annual aberration only.
+
+    Adding aberration back (ICRS at infinity -> GCRS for the observer) must
+    reproduce the get_body direction to a few milliarcseconds.
+    """
+    from astropy.coordinates import GCRS, angular_separation, get_body
+
+    from astra.utils.ephemeris import astrometric_icrs
+
+    t = Time(["2026-09-02T02:00:00", "2026-09-02T03:00:00"])
+    body = get_body("mars", t, location)
+    astrom = astrometric_icrs(body, t, location)
+
+    assert astrom.frame.name == "icrs"
+    assert len(astrom) == 2
+
+    aberration = angular_separation(astrom.ra, astrom.dec, body.ra, body.dec).to_value(
+        u.arcsec
+    )
+    assert np.all((aberration > 0.5) & (aberration < 21.0))
+
+    posvel = location.get_gcrs_posvel(t)
+    back = astrom.transform_to(
+        GCRS(obstime=t, obsgeoloc=posvel[0], obsgeovel=posvel[1])
+    )
+    residual = angular_separation(back.ra, back.dec, body.ra, body.dec).to_value(
+        u.arcsec
+    )
+    assert np.all(residual < 0.02)
+
+
+def test_get_body_coordinates_planet_is_icrs(location):
+    from astra.utils.ephemeris import get_body_coordinates
+
+    coord = get_body_coordinates("mars", Time("2026-09-02T02:00:00"), location)
+    assert coord.frame.name == "icrs"

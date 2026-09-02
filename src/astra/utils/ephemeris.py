@@ -13,10 +13,13 @@ import astropy.units as u
 import numpy as np
 import requests
 from astropy.coordinates import (
+    ICRS,
     AltAz,
+    CartesianRepresentation,
     EarthLocation,
     SkyCoord,
     get_body,
+    get_body_barycentric,
     get_sun,
     solar_system_ephemeris,
 )
@@ -130,16 +133,54 @@ def is_sun_rising(obs_location: EarthLocation) -> Tuple[bool, bool, AltAz]:
     return sun_rising, flat_ready, sun_altaz0
 
 
+def astrometric_icrs(
+    body: SkyCoord, obstime: Time, obs_location: EarthLocation
+) -> SkyCoord:
+    """Return the astrometric ICRS direction of a solar system body from the observer.
+
+    ``get_body`` returns GCRS coordinates. Those include annual aberration, so they
+    differ from a catalogue (ICRS) direction by up to 20 arcseconds. JPL Horizons
+    and SIMBAD give astrometric ICRS. This function brings the astropy result onto
+    the same footing, so every source Astra uses is in one frame.
+
+    The direction is the light-time corrected barycentric position of the body,
+    which astropy provides, minus the barycentric position of the observer. Do not
+    use ``transform_to(ICRS())`` on a ``get_body`` result for this. That returns the
+    direction from the solar system barycentre, not from the observer.
+
+    Args:
+        body: Output of ``get_body``, one or many times.
+        obstime: The time(s) the body was evaluated at.
+        obs_location: The observer location used for ``get_body``.
+
+    Returns:
+        SkyCoord in ICRS with no distance, one entry per input time.
+    """
+    if not body.cartesian.xyz.unit.is_equivalent(u.m):
+        # No distance, so this is already a direction. Nothing to correct.
+        return SkyCoord(ra=body.ra, dec=body.dec, frame="icrs")
+
+    body_bary = body.transform_to(ICRS()).cartesian.without_differentials()
+    observer_bary = (
+        get_body_barycentric("earth", obstime)
+        + obs_location.get_gcrs(obstime).cartesian.without_differentials()
+    )
+    direction = CartesianRepresentation(body_bary.xyz - observer_bary.xyz)
+    unit = SkyCoord(direction, frame="icrs")
+    return SkyCoord(ra=unit.ra, dec=unit.dec, frame="icrs")
+
+
 ## planet or SIMBAD positions
 def get_body_coordinates(
     body_name: str,
     obs_time: Time,
     obs_location: EarthLocation,
 ) -> SkyCoord:
-    """Get the fixed-frame position of a celestial body (Solar System or Deep Sky).
+    """Get the ICRS position of a celestial body (Solar System or Deep Sky).
 
-    Calculates the apparent celestial coordinates of a specified solar system body
-    or resolves the coordinates of a deep sky object by name.
+    Calculates the astrometric ICRS coordinates of a solar system body as seen
+    from the observer, or resolves the coordinates of a deep sky object by name.
+    Both are in the same frame as the schedule's ``ra``/``dec``.
 
     This returns a single position and is for targets that are tracked sidereally.
     Moving targets that need differential tracking -- minor bodies and TLE-defined
@@ -157,7 +198,9 @@ def get_body_coordinates(
     # Check if the body is in the solar system ephemeris (case-insensitive)
     # solar_system_ephemeris.bodies normally contains lowercase strings
     if body_name.lower() in _SOLAR_SYSTEM_BODIES:
-        return get_body(body_name, obs_time, obs_location)
+        return astrometric_icrs(
+            get_body(body_name, obs_time, obs_location), obs_time, obs_location
+        )
 
     # Otherwise, try to resolve as a deep sky object (ICRS)
     return SkyCoord.from_name(body_name)
@@ -242,7 +285,10 @@ def precompute_ephemeris(
 
     if body_name.lower() in _SOLAR_SYSTEM_BODIES:
         with solar_system_ephemeris.set("builtin"):
-            bodies = get_body(body_name, times, obs_location)
+            # Astrometric ICRS, the same frame Horizons and SIMBAD return.
+            bodies = astrometric_icrs(
+                get_body(body_name, times, obs_location), times, obs_location
+            )
         seconds = minutes * 60.0
     else:
         try:

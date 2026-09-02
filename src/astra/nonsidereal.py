@@ -146,6 +146,7 @@ class NonSiderealManager:
         action: Action,
         logger: logging.Logger,
         telescope: AlpacaDevice | None = None,
+        to_mount_frame: Callable[[float, float], tuple[float, float]] | None = None,
     ) -> None:
         """
         Args:
@@ -157,8 +158,14 @@ class NonSiderealManager:
                 check: schedule validation only knows whether *some* mount in the
                 observatory supports differential rates, not which one the action is
                 paired with.
+            to_mount_frame: Optional ``(ra_deg, dec_deg) -> (ra_deg, dec_deg)`` that
+                converts an ICRS position into the mount's frame. The ephemeris is
+                ICRS; a JNow mount needs the conversion before every re-centering
+                slew. None sends ICRS unchanged. The observatory supplies
+                ``to_mount_coordinates`` for the paired telescope.
         """
         self.logger = logger
+        self._to_mount_frame = to_mount_frame
 
         # The schedule sets the shortest time between rate commands. Increase it for
         # a mount that moves incorrectly when it receives a rate command. Decrease it
@@ -326,6 +333,8 @@ class NonSiderealManager:
                 level,
                 f"{label} on {state.body_name} at RA={ra_deg:.3f}°, Dec={dec_deg:.3f}°",
             )
+            if self._to_mount_frame is not None:
+                ra_deg, dec_deg = self._to_mount_frame(ra_deg, dec_deg)
             telescope.get(
                 "SlewToCoordinatesAsync",
                 RightAscension=ra_deg / 15.0,  # ASCOM expects RA in hours [0, 24)
