@@ -7,6 +7,7 @@ Key capabilities:
     - Support dictionary-like access to action configuration fields
 """
 
+import logging
 import typing
 from dataclasses import dataclass, field
 from enum import Enum
@@ -24,6 +25,8 @@ from astra.utils.ephemeris import (
     get_body_coordinates,
     precompute_ephemeris,
 )
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -664,6 +667,21 @@ class ObjectActionConfig(BaseActionConfig):
                 f"got {self.nonsidereal_rate_update_interval}"
             )
 
+        # A TLE and lookup_name 'TLE' only make sense together. Catching this here
+        # gives a clear message. Left unchecked, the name 'TLE' would fall through to
+        # a SIMBAD lookup and fail with an unrelated name-resolution error.
+        is_tle_name = self.lookup_name is not None and self.lookup_name.upper() == "TLE"
+        if is_tle_name and self.tle is None:
+            raise ValueError(
+                "lookup_name is 'TLE' but no 'tle' was given. Supply the two element "
+                "lines in 'tle', separated by a newline."
+            )
+        if self.tle is not None and not is_tle_name:
+            raise ValueError(
+                f"'tle' was given but lookup_name is {self.lookup_name!r}. "
+                "Set lookup_name to 'TLE' to track a target from its element set."
+            )
+
     def _resolve_lookup_name(
         self,
         start_time: Time,
@@ -714,11 +732,19 @@ class ObjectActionConfig(BaseActionConfig):
             self._ephemeris_epoch = start_time
             ra = float(self._ra_interp(0.0)) % 360.0
             dec = float(self._dec_interp(0.0))
-        except NotMovingBodyError:
+        except NotMovingBodyError as e:
             self._nonsidereal = False
             self._ra_rate_interp = None
             self._dec_rate_interp = None
             self._ephemeris_epoch = None
+
+            # Say why the name was not treated as a moving body. An ambiguous
+            # Horizons match, for example, would otherwise be resolved as a star
+            # without any trace of the Horizons message.
+            logger.info(
+                f"'{self.lookup_name}' is not a moving body, resolving it as a fixed "
+                f"target: {e}"
+            )
 
             target_coord = get_body_coordinates(
                 body_name=self.lookup_name,

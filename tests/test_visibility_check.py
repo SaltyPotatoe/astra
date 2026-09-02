@@ -303,9 +303,8 @@ class TestNonsiderealCapabilityGate:
     """
 
     def _config(self, **kwargs):
-        return ObjectActionConfig(
-            object="Test Target", exptime=60.0, lookup_name="mars", **kwargs
-        )
+        fields = {"lookup_name": "mars", **kwargs}
+        return ObjectActionConfig(object="Test Target", exptime=60.0, **fields)
 
     def _validate(self, config, observatory_location, observation_times, **kwargs):
         start_time, end_time = observation_times
@@ -319,7 +318,11 @@ class TestNonsiderealCapabilityGate:
 
     @pytest.mark.parametrize(
         "kwargs",
-        [{}, {"nonsidereal_recenter_interval": 300}, {"tle": "1 25544U ...\n2 ..."}],
+        [
+            {},
+            {"nonsidereal_recenter_interval": 300},
+            {"lookup_name": "TLE", "tle": "1 25544U ...\n2 ..."},
+        ],
         ids=["bare_lookup_name", "recenter_interval_set", "tle_supplied"],
     )
     def test_moving_body_on_unsupported_mount_raises(

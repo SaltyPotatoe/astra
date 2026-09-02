@@ -563,13 +563,21 @@ class TestShouldRecenter:
         mgr = _make_active_manager(recenter_interval=0)
         assert not mgr.should_recenter()
 
+    def test_false_before_tracking_starts(self):
+        """Setup can outlast a short interval; the clock starts with the rates."""
+        mgr = _make_active_manager(recenter_interval=1)
+        mgr._state.sequence_start_time -= 3600 * u.s  # setup "took" an hour
+        assert not mgr.should_recenter()
+
     def test_false_before_interval_elapses(self):
         mgr = _make_active_manager(recenter_interval=300)
+        mgr.apply_rates(MagicMock())  # starts the clock
         # last_recenter_time was just set — well within 300 s
         assert not mgr.should_recenter()
 
     def test_true_after_interval_elapses(self):
         mgr = _make_active_manager(recenter_interval=300)
+        mgr.apply_rates(MagicMock())
         # Wind the clock back so the interval appears to have passed
         mgr._state.last_recenter_time -= 301
         assert mgr.should_recenter()
@@ -595,14 +603,14 @@ class TestRecenter:
         with patch("time.sleep"):
             mgr.recenter(paired_devices, wait_fn)
 
-        # recenter() does a coarse slew followed by a fine correction, because the
-        # target keeps moving while the coarse slew is in progress.
+        # A slow target moves a negligible distance during the coarse slew, so the
+        # fine correction slew is skipped: one slew only.
         slew_calls = [
             c
             for c in paired_devices.telescope.get.call_args_list
             if c.args and c.args[0] == "SlewToCoordinatesAsync"
         ]
-        assert len(slew_calls) == 2
+        assert len(slew_calls) == 1
 
         for call in slew_calls:
             ra_hours = call.kwargs["RightAscension"]
@@ -649,11 +657,8 @@ class TestRecenter:
             result = mgr.recenter(paired_devices, wait_fn)
 
         assert result is True
-        # Once after the coarse slew, once after the fine correction.
-        assert wait_fn.call_args_list == [
-            ((paired_devices,), {}),
-            ((paired_devices,), {}),
-        ]
+        # A slow target needs only the coarse slew, so one wait for it.
+        assert wait_fn.call_args_list == [((paired_devices,), {})]
         # apply_rates sets RightAscensionRate and DeclinationRate
         keys_set = {c.args[0] for c in paired_devices.telescope.set.call_args_list}
         assert "RightAscensionRate" in keys_set
@@ -661,6 +666,7 @@ class TestRecenter:
 
     def test_updates_last_recenter_time(self):
         mgr = _make_active_manager(recenter_interval=300)
+        mgr.apply_rates(MagicMock())  # start the re-center clock
         mgr._state.last_recenter_time -= 400  # pretend it's been a while
         paired_devices = self._make_paired_devices()
 
@@ -901,16 +907,24 @@ class TestRecenterSafetyGuard:
         assert len(self._slews(paired.telescope)) == 1
 
     def test_both_slews_run_when_conditions_stay_safe(self):
-        mgr = _make_active_manager()
+        # A fast target, and a clock that advances 30 s once the coarse slew is
+        # done, so the fine correction is needed.
+        mgr = _make_active_manager(ra_slope=1e-2)
         paired = self._paired_devices()
+        base = Time(mgr._state.sequence_start_time)
+        calls = {"n": 0}
 
-        with patch("time.sleep"):
+        def fake_now():
+            calls["n"] += 1
+            return base if calls["n"] == 1 else base + 30 * u.s
+
+        with patch("time.sleep"), patch("astra.nonsidereal.Time.now", fake_now):
             result = mgr.recenter(paired, MagicMock(), can_slew=lambda: True)
 
         assert result is True
         assert len(self._slews(paired.telescope)) == 2
 
-    def test_absent_predicate_keeps_the_old_behaviour(self):
+    def test_absent_predicate_still_slews(self):
         mgr = _make_active_manager()
         paired = self._paired_devices()
 
@@ -918,4 +932,186 @@ class TestRecenterSafetyGuard:
             result = mgr.recenter(paired, MagicMock())
 
         assert result is True
-        assert len(self._slews(paired.telescope)) == 2
+        assert len(self._slews(paired.telescope)) == 1
+
+
+class TestRateCheckGate:
+    """After a 'keep current rates' decision, the next check waits a full interval."""
+
+    def test_drift_is_not_re_evaluated_within_the_interval(self):
+        mgr = _make_active_manager(
+            recenter_interval=0,
+        )
+        mgr._state.ra_rate_interp = _make_interp(slope=0.0, intercept=0.1)
+        mgr._state.dec_rate_interp = _make_interp(slope=0.0, intercept=0.0)
+        telescope = MagicMock()
+
+        mgr.apply_rates(telescope)  # first call always sends
+        assert telescope.set.call_count == 2
+
+        # Let the interval pass; the rates are unchanged, so this is a "keep".
+        mgr._state.last_rate_update_time -= mgr.min_rate_update_interval + 1
+        with patch.object(
+            mgr, "_projected_drift_arcsec", wraps=mgr._projected_drift_arcsec
+        ) as drift:
+            mgr.apply_rates(telescope)
+            mgr.apply_rates(telescope)  # 10 Hz caller: must not re-evaluate
+            mgr.apply_rates(telescope)
+
+        assert drift.call_count == 1
+        assert telescope.set.call_count == 2
+        assert mgr._state.last_rate_check_time is not None
+
+
+class TestTleActionConfigValidation:
+    """A TLE and lookup_name 'TLE' must be given together."""
+
+    def test_tle_name_without_elements_is_rejected(self):
+        with pytest.raises(ValueError, match="no 'tle' was given"):
+            ObjectActionConfig(object="ISS", exptime=1.0, lookup_name="TLE")
+
+    def test_elements_without_tle_name_are_rejected(self):
+        with pytest.raises(ValueError, match="Set lookup_name to 'TLE'"):
+            ObjectActionConfig(
+                object="ISS", exptime=1.0, lookup_name="mars", tle="1 ...\n2 ..."
+            )
+
+    def test_matching_pair_is_accepted(self):
+        cfg = ObjectActionConfig(
+            object="ISS", exptime=1.0, lookup_name="tle", tle="1 ...\n2 ..."
+        )
+        assert cfg.tle is not None
+
+
+class TestWaitForSlewSettle:
+    """SlewSettleTime is optional in ASCOM; an unimplemented property must not abort."""
+
+    def _observatory(self):
+        obs = Observatory.__new__(Observatory)
+        obs.logger = MagicMock()
+        obs.check_conditions = MagicMock(return_value=True)
+        return obs
+
+    def _paired(self, settle):
+        paired = MagicMock()
+        paired.__getitem__ = lambda self, key: "mount"
+
+        def get(key, **kwargs):
+            if key == "Slewing":
+                return False
+            if key == "SlewSettleTime":
+                if isinstance(settle, Exception):
+                    raise settle
+                return settle
+            return MagicMock()
+
+        paired.telescope.get.side_effect = get
+        return paired
+
+    def test_unimplemented_settle_time_falls_back_to_minimum(self):
+        from astra.observatory import MIN_SLEW_SETTLE_TIME
+
+        obs = self._observatory()
+        with patch("time.sleep") as sleep:
+            obs.wait_for_slew(self._paired(RuntimeError("not implemented")))
+        sleep.assert_called_with(MIN_SLEW_SETTLE_TIME)
+
+    def test_driver_settle_time_is_honoured_when_longer(self):
+        obs = self._observatory()
+        with patch("time.sleep") as sleep:
+            obs.wait_for_slew(self._paired(3))
+        sleep.assert_called_with(3.0)
+
+
+class TestMeridianFlipWithNonsidereal:
+    """A flip on a moving target must re-center, not re-slew to fixed coordinates."""
+
+    def _observatory(self):
+        obs = Observatory.__new__(Observatory)
+        obs.logger = MagicMock()
+        obs.check_conditions = MagicMock(return_value=True)
+        obs.setup_observatory = MagicMock()
+        obs.wait_for_slew = MagicMock()
+        obs.guider_manager = MagicMock()
+        obs.thread_manager = MagicMock()
+        return obs
+
+    def _paired(self):
+        paired = MagicMock()
+        paired.__getitem__ = lambda self, key: "mount"
+        paired.get_device_config.return_value = {"meridian_flip_min": 5}
+        # HA = 6 h, on the wrong side of the pier: a flip is due.
+        paired.telescope.get.side_effect = lambda key, **kwargs: {
+            "SiderealTime": 6.0,
+            "RightAscension": 0.0,
+            "Declination": 10.0,
+            "SideOfPier": 1,
+            "DestinationSideOfPier": 0,
+        }.get(key, MagicMock())
+        return paired
+
+    def test_active_manager_recenters_instead_of_setup_observatory(self):
+        obs = self._observatory()
+        nonsidereal = MagicMock()
+        nonsidereal.is_active = True
+        nonsidereal.recenter.return_value = True
+
+        flipped = obs._check_and_perform_meridian_flip(
+            MagicMock(), self._paired(), False, 10.0, nonsidereal=nonsidereal
+        )
+
+        assert flipped is True
+        nonsidereal.recenter.assert_called_once()
+        obs.setup_observatory.assert_not_called()
+
+    def test_inactive_manager_keeps_the_sidereal_re_slew(self):
+        obs = self._observatory()
+        nonsidereal = MagicMock()
+        nonsidereal.is_active = False
+
+        flipped = obs._check_and_perform_meridian_flip(
+            MagicMock(), self._paired(), False, 10.0, nonsidereal=nonsidereal
+        )
+
+        assert flipped is True
+        obs.setup_observatory.assert_called_once()
+        nonsidereal.recenter.assert_not_called()
+
+
+class TestClearTrackingRateOffsets:
+    """Every slew zeroes stale differential rates on a mount that supports them."""
+
+    def _observatory(self):
+        obs = Observatory.__new__(Observatory)
+        obs.logger = MagicMock()
+        obs._rate_offset_support = {}
+        return obs
+
+    def _telescope(self, can_ra=True, can_dec=True):
+        telescope = MagicMock()
+        telescope.get.side_effect = lambda key, **kwargs: {
+            "CanSetRightAscensionRate": can_ra,
+            "CanSetDeclinationRate": can_dec,
+        }.get(key, MagicMock())
+        return telescope
+
+    def test_zeroes_rates_on_a_capable_mount(self):
+        obs = self._observatory()
+        telescope = self._telescope()
+        obs._clear_tracking_rate_offsets(telescope, "mount")
+        telescope.set.assert_any_call("RightAscensionRate", 0.0)
+        telescope.set.assert_any_call("DeclinationRate", 0.0)
+
+    def test_skips_a_mount_without_rate_support(self):
+        obs = self._observatory()
+        telescope = self._telescope(can_dec=False)
+        obs._clear_tracking_rate_offsets(telescope, "mount")
+        telescope.set.assert_not_called()
+
+    def test_capability_is_read_once_per_mount(self):
+        obs = self._observatory()
+        telescope = self._telescope()
+        obs._clear_tracking_rate_offsets(telescope, "mount")
+        obs._clear_tracking_rate_offsets(telescope, "mount")
+        assert telescope.get.call_count == 2  # two flags, read once
+        assert telescope.set.call_count == 4

@@ -185,12 +185,11 @@ def precompute_ephemeris(
 ):
     """Pre-compute a moving body's sky positions over a time window.
 
-    Performs a single vectorised get_body() call and returns cubic interpolation
-    functions keyed on seconds since start_time.  Querying the interpolators is
-    orders of magnitude faster than repeated positional lookups at runtime.
-
-    Currently supports astropy built-in bodies (planets, Moon, Sun), minor bodies
-    via JPL Horizons, and Two-Line Element (TLE) sets for satellites and debris.
+    Samples the body's position once over the whole window and returns cubic
+    interpolation functions keyed on seconds since start_time. Planets, the Moon
+    and the Sun come from one vectorised astropy get_body() call. Minor bodies and
+    TLE-defined satellites come from one JPL Horizons query. Reading the
+    interpolators at runtime is much faster than repeated position lookups.
 
     Args:
         body_name: Name of the body (e.g. 'mars', 'moon'). Must be present in
@@ -213,7 +212,8 @@ def precompute_ephemeris(
         If return_rates is True:
             (ra_interp, dec_interp, ra_rate_interp, dec_rate_interp), where
             ra_rate_interp and dec_rate_interp map elapsed seconds to ASCOM tracking
-            units (RightAscensionRate in s/s_sidereal and DeclinationRate in as/s_sidereal).
+            units (RightAscensionRate in seconds of RA per sidereal second and
+            DeclinationRate in arcseconds per SI second).
 
     Raises:
         NotMovingBodyError: If body cannot be resolved as a solar system body,
@@ -316,13 +316,16 @@ def precompute_ephemeris(
         ra_rates = (
             ra_rate_as_per_hour / (15.0 * 3600.0 * cos_dec)
         ) / _SOLAR_TO_SIDEREAL
-        dec_rates = (dec_rate_as_per_hour / 3600.0) / _SOLAR_TO_SIDEREAL
+        # ASCOM DeclinationRate is in arcseconds per SI (solar) second, so no
+        # sidereal conversion applies here. Only RightAscensionRate is per
+        # sidereal second.
+        dec_rates = dec_rate_as_per_hour / 3600.0
     else:
         # Fallback for astropy bodies: derive rates from sampled sky positions.
         ra_rate_deg_per_solar_s = np.gradient(ra_coords, seconds)
         dec_rate_deg_per_solar_s = np.gradient(dec_coords, seconds)
         ra_rates = (ra_rate_deg_per_solar_s * 240.0) / _SOLAR_TO_SIDEREAL
-        dec_rates = (dec_rate_deg_per_solar_s * 3600.0) / _SOLAR_TO_SIDEREAL
+        dec_rates = dec_rate_deg_per_solar_s * 3600.0
 
     ra_rate_interp = interp1d(
         seconds,
@@ -359,19 +362,19 @@ def compute_nonsidereal_rates_from_interp(
     Returns:
         (ra_rate, dec_rate) where:
           ra_rate  - seconds of time per sidereal second  (ASCOM RightAscensionRate)
-          dec_rate - arcseconds per sidereal second       (ASCOM DeclinationRate)
+          dec_rate - arcseconds per SI second             (ASCOM DeclinationRate)
     """
-    # Scale dt from solar seconds to sidereal seconds for correct per-sidereal-second rates.
-    # A sidereal second is shorter than a solar second, so an interval of ``dt`` solar
-    # seconds spans ``dt * _SOLAR_TO_SIDEREAL`` sidereal seconds.  This matches the
-    # ``/ _SOLAR_TO_SIDEREAL`` applied to the per-solar-second rates in
-    # ``precompute_ephemeris`` -- both express the rate per sidereal second.
+    # ASCOM RightAscensionRate is per sidereal second. A sidereal second is shorter
+    # than a solar second, so ``dt`` solar seconds span ``dt * _SOLAR_TO_SIDEREAL``
+    # sidereal seconds. This matches the ``/ _SOLAR_TO_SIDEREAL`` applied to the RA
+    # rates in ``precompute_ephemeris``. DeclinationRate is per SI second, so the
+    # Dec rate uses ``dt`` directly.
     dt_in_sidereal_s = dt * _SOLAR_TO_SIDEREAL
 
     delta_ra_deg = float(ra_interp(t_seconds + dt)) - float(ra_interp(t_seconds))
     delta_dec_deg = float(dec_interp(t_seconds + dt)) - float(dec_interp(t_seconds))
 
-    # Convert to ASCOM units (RA: s/s_sidereal, Dec: as/s_sidereal)
+    # Convert to ASCOM units (RA: s/s_sidereal, Dec: as/s_SI)
     ra_rate = (delta_ra_deg * 240.0) / dt_in_sidereal_s
-    dec_rate = (delta_dec_deg * 3600.0) / dt_in_sidereal_s
+    dec_rate = (delta_dec_deg * 3600.0) / dt
     return ra_rate, dec_rate

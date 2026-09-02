@@ -407,7 +407,9 @@ def test_precompute_ephemeris_return_rates_from_horizons(location, monkeypatch):
     # Horizons RA_rate is dRA*cos(Dec)/dt; dividing by cos(Dec) recovers the
     # RA coordinate rate before conversion to ASCOM s/sidereal-s units.
     assert float(ra_rate_interp(0.0)) == pytest.approx(0.1061, abs=1e-3)
-    assert float(dec_rate_interp(0.0)) == pytest.approx(1.9945, abs=1e-3)
+    # ASCOM DeclinationRate is arcsec per SI second, so 7200 arcsec/hr is exactly
+    # 2.0 with no sidereal factor.
+    assert float(dec_rate_interp(0.0)) == pytest.approx(2.0, abs=1e-6)
 
 
 def test_precompute_ephemeris_ra_dec_ranges(location):

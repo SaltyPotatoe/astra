@@ -358,7 +358,9 @@ class HeaderManager:
                                 val = False
                             else:
                                 raise ValueError(f"Invalid boolean string: {val}")
-                        elif isinstance(val, (int, float)):
+                        elif isinstance(val, (int, float)) or val is None:
+                            # None stays False, as bool(None) did before the
+                            # string handling above was added.
                             val = bool(val)
                         hdr[row_header] = (
                             val,

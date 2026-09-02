@@ -1,32 +1,30 @@
-"""Non-sidereal (solar system body) tracking for observatory imaging sequences.
+"""Non-sidereal (moving target) tracking for observatory imaging sequences.
 
-This module provides the machinery for tracking solar system objects (comets,
-asteroids, planets, Earth-orbiting objects) whose celestial coordinates change
-significantly over short timescales. It uses high-precision cubic interpolation
-of pre-computed ephemerides to provide smooth, differential tracking rates to
-the telescope mount via ASCOM.
+This module tracks solar system objects and Earth-orbiting objects. Their sky
+coordinates change over the length of an exposure. The module reads positions
+from a pre-computed ephemeris and sends differential tracking rates to the mount
+through ASCOM.
 
-Key Capabilities:
-    - Ephemeris Pre-computation: Uses Astropy or JPL Horizons to generate a sequence of
-      positions for a given object over the duration of an observation.
-    - Cubic Interpolation: Provides sub-second precision for RA/Dec coordinates
-      without requiring repeated, expensive lookups.
-    - Differential Tracking: Calculates and applies the exact RA/Dec rates
-      required for the mount to follow the target (blind tracking).
-    - Periodic Re-centering: Automatically re-slews the telescope to the latest
-      ephemeris position at user-defined intervals to correct for long-term drift.
+What it does:
+    - Reads the ephemeris that ``ObjectActionConfig`` computed at schedule load
+      time, from Astropy or from JPL Horizons.
+    - Interpolates RA/Dec and their rates at any moment without new lookups.
+    - Sends the ASCOM ``RightAscensionRate`` and ``DeclinationRate`` the mount needs
+      to follow the target (open-loop tracking).
+    - Re-slews the mount to the current ephemeris position at a set interval, to
+      remove drift that the rates cannot correct.
 
-Integration Notes:
-    - Non-sidereal tracking is generally incompatible with standard autoguiding.
-      The system is designed to disable guiding when active.
-    - Requires ASCOM drivers that support `RightAscensionRate` and
-      `DeclinationRate` properties.
+Notes:
+    - Autoguiding does not work with non-sidereal tracking. The observatory
+      disables guiding when this tracking is active.
+    - The mount must report ``CanSetRightAscensionRate`` and
+      ``CanSetDeclinationRate``.
 """
 
 import logging
 import math
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any, Callable
 
 import astropy.units as u
@@ -51,10 +49,10 @@ __all__ = ["NonSiderealManager"]
 _MIN_RATE_UPDATE_INTERVAL_S = 10.0
 
 # Beyond the interval floor, only send a rate once keeping the current one would
-# trail the target by more than this much. Judged as angle on the sky rather than
-# as a percentage of the rate: a percentage is undefined as a rate passes through
-# zero -- which happens routinely, at a target's maximum declination -- and fires
-# continuously there over changes far too small to see.
+# trail the target by more than this much. This is an angle on the sky, not a
+# percentage of the rate. A percentage is undefined when a rate passes through
+# zero, which happens at a target's maximum declination, and would then fire
+# continuously over changes far too small to see.
 _RATE_UPDATE_TOLERANCE_ARCSEC = 0.5
 
 # How far the target may drift past the intended start of imaging before the mount
@@ -76,6 +74,12 @@ _SLEW_POLL_START_DELAY = 1.0
 _MAX_EPHEMERIS_EPOCH_DRIFT_S = 1.0
 
 
+# Skip the second, fine re-centering slew when the target moved less than this
+# during the first slew. A planet moves well under an arcsecond in that time, so
+# the second slew would only add settle time.
+_RECENTER_CORRECTION_MIN_ARCSEC = 1.0
+
+
 @dataclass
 class _NonSiderealState:
     """
@@ -85,9 +89,22 @@ class _NonSiderealState:
         body_name (str): Name of the solar system body being tracked.
         ra_interp (Any): Scipy interpolator for Right Ascension (degrees).
         dec_interp (Any): Scipy interpolator for Declination (degrees).
-        sequence_start_time (Time): The exact Astropy Time the sequence began.
-        recenter_interval (int): Seconds between re-centering slews.
-        last_recenter_time (float): Unix timestamp of the last successful re-center.
+        ra_rate_interp (Any): Scipy interpolator for ASCOM RightAscensionRate
+            (seconds of RA per sidereal second), or None to derive rates from
+            ``ra_interp`` and ``dec_interp`` by finite difference.
+        dec_rate_interp (Any): Scipy interpolator for ASCOM DeclinationRate
+            (arcseconds per SI second), or None as above.
+        sequence_start_time (Time): The epoch the interpolators are keyed to (t=0).
+        recenter_interval (int): Seconds between re-centering slews. 0 disables them.
+        last_recenter_time (float | None): Unix timestamp of the last re-center.
+            None until tracking rates are first applied, so the interval counts
+            from the start of tracking rather than from sequence setup.
+        last_applied_ra_rate (float | None): Last RightAscensionRate sent to the mount.
+        last_applied_dec_rate (float | None): Last DeclinationRate sent to the mount.
+        last_rate_update_time (float | None): Unix timestamp of the last rate command.
+        last_rate_check_time (float | None): Unix timestamp of the last time the
+            rates were evaluated and found not worth sending. Gates re-evaluation
+            so that a steady target is not re-checked at the caller's 10 Hz.
     """
 
     body_name: str
@@ -97,18 +114,18 @@ class _NonSiderealState:
     dec_rate_interp: Any
     sequence_start_time: Time
     recenter_interval: int
-    last_recenter_time: float = field(default_factory=time.time)
+    last_recenter_time: float | None = None
     last_applied_ra_rate: float | None = None
     last_applied_dec_rate: float | None = None
     last_rate_update_time: float | None = None
+    last_rate_check_time: float | None = None
 
 
 class NonSiderealManager:
-    """Manages non-sidereal tracking operations for a single imaging sequence.
+    """Manages non-sidereal tracking for a single imaging sequence.
 
-    This class encapsulates the mathematical and operational complexity of
-    differential tracking, allowing the main observatory loop to remain
-    focused on hardware orchestration.
+    This class computes the tracking rates and the re-center positions from the
+    pre-computed ephemeris. The observatory loop only controls the hardware.
 
     Usage::
 
@@ -190,8 +207,16 @@ class NonSiderealManager:
         return self._state.sequence_start_time + lead_time_seconds * u.s
 
     def should_recenter(self) -> bool:
-        """Return True if the recenter interval has elapsed."""
+        """Return True if the recenter interval has elapsed since tracking started.
+
+        The interval is counted from the first rate command, not from when the
+        manager was built. Sequence setup (slew, filter, focus, lead-time wait)
+        can take longer than a short interval, and a re-center on the first
+        exposure would waste two slews on a mount that just arrived on target.
+        """
         if self._state is None or self._state.recenter_interval <= 0:
+            return False
+        if self._state.last_recenter_time is None:
             return False
         return (
             time.time() - self._state.last_recenter_time > self._state.recenter_interval
@@ -248,7 +273,8 @@ class NonSiderealManager:
 
         self.logger.warning(
             f"Imaging of {self._state.body_name} starts {late_s:.0f}s after the "
-            f'intended moment, by which time it has moved {drift:.0f}". Re-centering.'
+            f'intended moment. The target has moved {drift:.0f}" since then. '
+            "Re-centering."
         )
         return self.recenter(paired_devices, wait_for_slew_fn, can_slew=can_slew)
 
@@ -258,18 +284,23 @@ class NonSiderealManager:
         wait_for_slew_fn: Callable[[PairedDevices], None],
         can_slew: Callable[[], bool] | None = None,
     ) -> bool:
-        """Slew to the updated ephemeris position and refresh tracking rates.
+        """Slew to the current ephemeris position and refresh the tracking rates.
+
+        The first slew goes to the target's position at the moment the slew is
+        commanded. A fast target moves on while the mount is slewing, so a second
+        slew corrects for that motion. The second slew is skipped when the target
+        moved less than ``_RECENTER_CORRECTION_MIN_ARCSEC`` during the first one.
 
         Args:
             paired_devices: PairedDevices for the sequence.
             wait_for_slew_fn: Callable(paired_devices) that blocks until slew completes.
             can_slew: Optional predicate checked before each slew. Conditions can
-                change between the two slews below -- a weather alert parks the mount,
-                and a parked mount rejects a slew outright -- so it is checked again
-                rather than only on entry.
+                change between the two slews. A weather alert parks the mount, and a
+                parked mount rejects a slew. So it is checked before each slew, not
+                only on entry.
 
         Returns:
-            True if re-centering was performed (caller should reset guiding flag).
+            True if re-centering was performed.
         """
         if self._state is None:
             return False
@@ -280,23 +311,20 @@ class NonSiderealManager:
             if can_slew is None or can_slew():
                 return False
             self.logger.info(
-                f"Conditions are no longer safe for movement; abandoning the "
-                f"re-centre on {state.body_name}."
+                f"Conditions are no longer safe for movement. Abandoning the "
+                f"re-center on {state.body_name}."
             )
             return True
 
-        try:
-            telescope = paired_devices.telescope
-
-            if unsafe_to_slew():
-                return False
-
-            # Coarse slew to the satellite's current position.
-            t_seconds = (Time.now() - state.sequence_start_time).to(u.s).value
-            ra_deg = float(state.ra_interp(t_seconds)) % 360.0  # unwrap → [0, 360)
+        def slew_to_current_position(label: str, level: int) -> Time:
+            """Slew to the target's position now and return the time used."""
+            now = Time.now()
+            t_seconds = (now - state.sequence_start_time).to(u.s).value
+            ra_deg = float(state.ra_interp(t_seconds)) % 360.0  # unwrap to [0, 360)
             dec_deg = float(state.dec_interp(t_seconds))
-            self.logger.info(
-                f"Re-centering on {state.body_name} at RA={ra_deg:.3f}°, Dec={dec_deg:.3f}°"
+            self.logger.log(
+                level,
+                f"{label} on {state.body_name} at RA={ra_deg:.3f}°, Dec={dec_deg:.3f}°",
             )
             telescope.get(
                 "SlewToCoordinatesAsync",
@@ -305,31 +333,37 @@ class NonSiderealManager:
             )
             time.sleep(_SLEW_POLL_START_DELAY)
             wait_for_slew_fn(paired_devices)
+            return now
+
+        try:
+            telescope = paired_devices.telescope
 
             if unsafe_to_slew():
                 return False
 
-            # Fine correction: the satellite moved during the coarse slew. Re-target
-            # the current position so the offset isn't locked in by the tracking rates.
-            t_seconds = (Time.now() - state.sequence_start_time).to(u.s).value
-            ra_deg = float(state.ra_interp(t_seconds)) % 360.0
-            dec_deg = float(state.dec_interp(t_seconds))
-            self.logger.debug(
-                f"Re-centering correction on {state.body_name} at RA={ra_deg:.3f}°, Dec={dec_deg:.3f}°"
-            )
-            telescope.get(
-                "SlewToCoordinatesAsync",
-                RightAscension=ra_deg / 15.0,
-                Declination=dec_deg,
-            )
-            time.sleep(_SLEW_POLL_START_DELAY)
-            wait_for_slew_fn(paired_devices)
+            # Coarse slew to the target's current position.
+            slew_time = slew_to_current_position("Re-centering", logging.INFO)
 
-            # Force the post-slew rate push regardless of delta or interval — the
-            # mount has just moved and we want a known-good rate applied immediately.
+            if unsafe_to_slew():
+                return False
+
+            # Fine correction: the target moved during the coarse slew. Re-target
+            # the current position so the tracking rates do not lock in the offset.
+            moved = self.drift_between(slew_time, Time.now()) or 0.0
+            if moved >= _RECENTER_CORRECTION_MIN_ARCSEC:
+                slew_to_current_position("Re-centering correction", logging.DEBUG)
+            else:
+                self.logger.debug(
+                    f"Skipping re-centering correction on {state.body_name}: the "
+                    f'target moved only {moved:.2f}" during the slew.'
+                )
+
+            # Force the post-slew rate push regardless of delta or interval. The
+            # mount has just moved and needs a known-good rate applied immediately.
             state.last_applied_ra_rate = None
             state.last_applied_dec_rate = None
             state.last_rate_update_time = None
+            state.last_rate_check_time = None
             self._apply_rates(telescope, state)
             state.last_recenter_time = time.time()
             return True
@@ -352,6 +386,7 @@ class NonSiderealManager:
             self._state.last_applied_ra_rate = None
             self._state.last_applied_dec_rate = None
             self._state.last_rate_update_time = None
+            self._state.last_rate_check_time = None
             self.logger.info("Non-sidereal tracking rates reset to zero")
         except Exception as e:
             self.logger.warning(f"Could not reset non-sidereal tracking rates: {e}")
@@ -359,13 +394,14 @@ class NonSiderealManager:
     def _setup(
         self, action: Action, telescope: AlpacaDevice | None = None
     ) -> _NonSiderealState | None:
-        """Build state from pre-computed ephemeris in the action config.
+        """Build state from the pre-computed ephemeris in the action config.
 
-        Returns None if non-sidereal tracking is not active (``_nonsidereal`` is False),
-        telescope movement is disabled, or the mount cannot accept differential tracking
-        rates.  The ephemeris interpolators are computed once at schedule load time (in
-        ``ObjectActionConfig.validate_visibility``) and read here at sequence start — no
-        repeated network or ephemeris calls at runtime.
+        Returns None if non-sidereal tracking is not active (``_nonsidereal`` is
+        False), if telescope movement is disabled, or if the mount cannot accept
+        differential tracking rates. The ephemeris interpolators are computed once
+        at schedule load time, in ``ObjectActionConfig.validate_visibility``, and
+        read here at sequence start. There are no network or ephemeris calls at
+        runtime.
         """
         if (
             not action.action_value.get("_nonsidereal", False)
@@ -444,21 +480,26 @@ class NonSiderealManager:
     def _apply_rates(self, telescope: AlpacaDevice, state: _NonSiderealState) -> None:
         """Set ASCOM RightAscensionRate / DeclinationRate from the interpolated ephemeris.
 
-        Called at up to 10 Hz from the exposure and image-save loops, but most of
-        those calls must not reach the mount: rate commands interrupt tracking on
-        some mounts, and the required rate changes far more slowly than that. Two
-        gates decide whether a call gets through -- a minimum interval since the
-        last command, then whether keeping the current rate would actually trail
-        the target. See ``_rate_update_worthwhile``.
+        Called at up to 10 Hz from the exposure and image-save loops. Most of those
+        calls must not reach the mount: rate commands interrupt tracking on some
+        mounts, and the required rate changes much more slowly than that. Two gates
+        decide whether a call gets through. The first is a minimum interval since
+        the last rate command or the last rate check. The second is whether keeping
+        the current rate would trail the target, see ``_projected_drift_arcsec``.
         """
         now = time.time()
-        if (
-            state.last_rate_update_time is not None
-            and now - state.last_rate_update_time < self.min_rate_update_interval
-        ):
+        last_visit = max(
+            state.last_rate_update_time or 0.0, state.last_rate_check_time or 0.0
+        )
+        if last_visit > 0.0 and now - last_visit < self.min_rate_update_interval:
             # Cheap early exit before touching the interpolators, since this is the
             # branch the high-frequency callers take almost every time.
             return
+
+        if state.last_recenter_time is None:
+            # First rate command of the sequence: tracking starts now, so the
+            # re-center interval starts counting from here.
+            state.last_recenter_time = now
 
         try:
             t_seconds = (Time.now() - state.sequence_start_time).to(u.s).value
@@ -474,11 +515,15 @@ class NonSiderealManager:
                 state, ra_rate, dec_rate, t_seconds, now
             )
             if drift is not None and drift < _RATE_UPDATE_TOLERANCE_ARCSEC:
-                self.logger.debug(
-                    f"Keeping current non-sidereal rates; updating them would recover "
-                    f'only {drift:.4f}" of trailing '
-                    f"(dRA={ra_rate:.6f} s/s, dDec={dec_rate:.6f} as/s)"
-                )
+                # Record the check so the next evaluation waits a full interval
+                # instead of running at the caller's rate.
+                state.last_rate_check_time = now
+                if self.logger.isEnabledFor(logging.DEBUG):
+                    self.logger.debug(
+                        "Keeping current non-sidereal rates. Updating them would "
+                        f'recover only {drift:.4f}" of trailing '
+                        f"(dRA={ra_rate:.6f} s/s, dDec={dec_rate:.6f} as/s)"
+                    )
                 return
 
             telescope.set("RightAscensionRate", ra_rate)
@@ -525,9 +570,9 @@ class NonSiderealManager:
     ) -> float | None:
         """Trailing, in arcsec, that keeping the current rates would cause.
 
-        Measured over the horizon until rates could next be sent, so it answers the
-        question that matters -- how far off target the mount drifts by not being
-        updated -- rather than how much the number changed.
+        Measured over the time until rates could next be sent. This answers the
+        question that matters: how far off target the mount drifts if it is not
+        updated. It does not measure how much the rate number changed.
 
         Returns None when no rates have been applied yet, meaning the caller should
         send them unconditionally.

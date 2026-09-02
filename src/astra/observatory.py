@@ -207,6 +207,10 @@ class Observatory:
         # running threads list
         self.thread_manager = ThreadManager()
 
+        # Per-telescope cache: can the mount set differential tracking rates?
+        # Filled on first use by _clear_tracking_rate_offsets.
+        self._rate_offset_support: dict[str, bool] = {}
+
         # queue for multiprocessing
         self.queue_manager = QueueManager(
             logger=self.logger,
@@ -1608,6 +1612,7 @@ class Observatory:
             device_name=telescope_name,
             log_message=f"Setting Telescope {telescope_name} tracking to True",
         )
+        self._clear_tracking_rate_offsets(telescope, telescope_name)
 
         self.logger.info(
             f"Slewing Telescope {telescope_name} to RA/Dec {ra_deg:.2f}°/{dec_deg:.2f}°"
@@ -1621,6 +1626,32 @@ class Observatory:
         # wait_for_slew applies the post-slew settle itself.
         time.sleep(SLEW_POLL_START_DELAY)
         self.wait_for_slew(paired_devices)
+
+    def _clear_tracking_rate_offsets(
+        self, telescope: AlpacaDevice, telescope_name: str
+    ) -> None:
+        """Set the mount's differential tracking rates to zero before a slew.
+
+        A non-sidereal sequence leaves ``RightAscensionRate`` and ``DeclinationRate``
+        on the mount if Astra stops without running its teardown. A later sidereal
+        sequence on that mount would then trail. Mounts that cannot set rates are
+        skipped. The capability check is cached per telescope, so each slew costs at
+        most two extra device calls.
+        """
+        cache = self._rate_offset_support
+        try:
+            if telescope_name not in cache:
+                cache[telescope_name] = bool(
+                    telescope.get("CanSetRightAscensionRate")
+                ) and bool(telescope.get("CanSetDeclinationRate"))
+            if not cache[telescope_name]:
+                return
+            telescope.set("RightAscensionRate", 0.0)
+            telescope.set("DeclinationRate", 0.0)
+        except Exception as e:
+            self.logger.debug(
+                f"Could not zero tracking rate offsets on Telescope {telescope_name}: {e}"
+            )
 
     def _configure_filter(
         self,
@@ -1900,7 +1931,13 @@ class Observatory:
 
             slewing = telescope.get("Slewing")
 
-        settle = telescope.get("SlewSettleTime") or 0
+        # SlewSettleTime is optional in ASCOM. A driver that does not implement it
+        # raises, and that must not abort the slew.
+        try:
+            settle = float(telescope.get("SlewSettleTime") or 0)
+        except Exception as e:
+            self.logger.debug(f"Could not read SlewSettleTime, using default: {e}")
+            settle = 0.0
         time.sleep(max(settle, MIN_SLEW_SETTLE_TIME))
 
     def check_conditions(self, action: Action | None = None) -> bool:
@@ -2179,6 +2216,7 @@ class Observatory:
         paired_devices: PairedDevices,
         guiding: bool,
         exposure_time_sec: float = 0.0,
+        nonsidereal: NonSiderealManager | None = None,
     ) -> bool:
         """
         Predictive meridian flip check.
@@ -2189,6 +2227,10 @@ class Observatory:
             paired_devices: The devices involved in the current sequence, used to access telescope properties.
             guiding: Whether guiding is currently active, used to determine if guiding needs to be stopped for the flip.
             exposure_time_sec: The duration of the upcoming exposure in seconds, used to predict if a flip will be needed before the exposure ends.
+            nonsidereal: Active non-sidereal manager, or None. When active, the flip
+                slews to the target's current ephemeris position and re-applies the
+                tracking rates. A plain re-slew would use the target's fixed lookup
+                coordinates, which do not exist for a moving body.
         """
         try:
             telescope = paired_devices.telescope
@@ -2243,7 +2285,15 @@ class Observatory:
                     )
 
                 # Slew to trigger the flip
-                self.setup_observatory(paired_devices, action.action_value)
+                if nonsidereal is not None and nonsidereal.is_active:
+                    if not nonsidereal.recenter(
+                        paired_devices,
+                        self.wait_for_slew,
+                        can_slew=lambda: self.check_conditions(action),
+                    ):
+                        return False
+                else:
+                    self.setup_observatory(paired_devices, action.action_value)
 
                 self.logger.info("Meridian flip completed")
                 return True
@@ -2383,16 +2433,22 @@ class Observatory:
     def _run_exposure_loop(
         self,
         action: Action,
-        action_value: object,
+        action_value: BaseActionConfig,
         paired_devices: PairedDevices,
         nonsidereal: NonSiderealManager,
         exptime_list: list,
         n_exposures_list: list,
-        camera: object,
+        camera: AlpacaDevice,
         maxadu: float,
         meridian_flip_enabled: bool,
+        guiding_enabled: bool,
     ) -> None:
-        """Execute all exposures for an image sequence."""
+        """Execute all exposures for an image sequence.
+
+        Parameters:
+            guiding_enabled: True when the action asks for autoguiding and the
+                sequence is sidereal. Non-sidereal tracking never guides.
+        """
         pointing_complete = False
         pointing_attempts = 0
         guiding = False
@@ -2413,33 +2469,30 @@ class Observatory:
                     ):
                         last_flip_check_time = now
                         if self._check_and_perform_meridian_flip(
-                            action, paired_devices, guiding, exptime
+                            action,
+                            paired_devices,
+                            guiding,
+                            exptime,
+                            nonsidereal=nonsidereal,
                         ):
                             guiding = False
                             pointing_complete = False
-                            if nonsidereal.is_active and "Telescope" in paired_devices:
-                                nonsidereal.apply_rates(paired_devices.telescope)
 
                 # Non-sidereal re-centering. Guarded on conditions like the
                 # meridian flip above: a weather park makes the mount reject a slew.
+                # Guiding is never active during non-sidereal tracking, so there is
+                # no guider to stop here.
                 if (
                     nonsidereal.is_active
                     and "Telescope" in paired_devices
                     and nonsidereal.should_recenter()
                     and self.check_conditions(action)
                 ):
-                    if guiding:
-                        self.guider_manager.stop_guider(
-                            paired_devices["Telescope"],
-                            thread_manager=self.thread_manager,
-                        )
-                    # TODO: Inspect logic, why guiding = False here? Doesn't stop_guider do this?
-                    if nonsidereal.recenter(
+                    nonsidereal.recenter(
                         paired_devices,
                         self.wait_for_slew,
                         can_slew=lambda: self.check_conditions(action),
-                    ):
-                        guiding = False
+                    )
 
                 log_option = (
                     f"{exposure + 1}/{n_exposures_list[i]}"
@@ -2488,7 +2541,7 @@ class Observatory:
                     pointing_complete = True
 
                 # Start guiding once pointing is confirmed
-                if action_value.get("guiding") and not guiding and pointing_complete:
+                if guiding_enabled and not guiding and pointing_complete:
                     guiding = self.guider_manager.start_guider(
                         image_handler=self.get_image_handler(camera.device_name),
                         paired_devices=paired_devices,
@@ -2500,18 +2553,17 @@ class Observatory:
 
     def _sequence_teardown(
         self,
-        action_value: object,
+        guiding_enabled: bool,
         paired_devices: PairedDevices,
         nonsidereal: NonSiderealManager,
     ) -> None:
         """Stop guiding, reset non-sidereal rates, and stop tracking."""
-        if action_value.get("guiding", False):
+        if guiding_enabled:
             self.guider_manager.stop_guider(
                 paired_devices["Telescope"], thread_manager=self.thread_manager
             )
         if "Telescope" in paired_devices:
             nonsidereal.reset_rates(paired_devices.telescope)
-        if "Telescope" in paired_devices:
             self.execute_and_monitor_device_task(
                 "Telescope",
                 "Tracking",
@@ -2524,9 +2576,31 @@ class Observatory:
     # ------------------------------------------------------------------ #
 
     def image_sequence(self, action: Action, paired_devices: PairedDevices) -> None:
-        """Execute a complete imaging sequence: pre-point, wait for activation,
-        run exposures with optional pointing correction and autoguiding, then
-        clean up tracking on exit."""
+        """
+        Execute a complete imaging sequence with a camera.
+
+        Runs observatory setup, the exposures, optional pointing correction and
+        optional autoguiding. Handles both object and calibration sequences. For a
+        moving target it also pre-points the mount, waits for the activation time,
+        applies differential tracking rates, and re-centers at intervals.
+
+        Parameters:
+            action (Action): Schedule action with device_name, action_type
+                ('object' or 'calibration'), start_time, end_time, and the
+                action_value with exposure times, filters and tracking options.
+            paired_devices (PairedDevices): Devices for the sequence (camera,
+                telescope, filter wheel, focuser).
+
+        Process:
+            1. Pre-sequence setup: slew, filter, focus, camera, headers.
+            2. For a moving target, wait for the activation time and apply rates.
+            3. Take the exposures with condition checks, meridian flip checks and
+               re-centering.
+            4. Run pointing correction on the first frames if requested.
+            5. Start guiding once pointing is complete, sidereal sequences only.
+            6. Stop guiding, reset tracking rates and stop tracking at the end,
+               also on error.
+        """
         self.logger.info(
             f"Running {action.action_type} sequence for {action.device_name}, "
             f"starting {action.start_time} and ending {action.end_time}"
@@ -2550,11 +2624,12 @@ class Observatory:
         maxadu = camera.get("MaxADU")
         action_value = action.action_value
 
-        if nonsidereal.is_active and action_value.get("guiding"):
+        guiding_enabled = bool(action_value.get("guiding", False))
+        if nonsidereal.is_active and guiding_enabled:
             self.logger.warning(
                 "Guiding is configured but will be disabled: incompatible with non-sidereal tracking"
             )
-            action_value = {**action_value, "guiding": False}
+            guiding_enabled = False
 
         meridian_flip_enabled = self._is_meridian_flip_enabled(action, paired_devices)
 
@@ -2570,9 +2645,10 @@ class Observatory:
                 camera,
                 maxadu,
                 meridian_flip_enabled,
+                guiding_enabled,
             )
         finally:
-            self._sequence_teardown(action_value, paired_devices, nonsidereal)
+            self._sequence_teardown(guiding_enabled, paired_devices, nonsidereal)
 
     def pointing_model_sequence(
         self, action: Action, paired_devices: PairedDevices

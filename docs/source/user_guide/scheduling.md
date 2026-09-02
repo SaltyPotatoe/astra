@@ -136,42 +136,43 @@ schedule is loaded, and the source it resolves against determines the tracking:
 
    For satellites, set `nonsidereal_start_lead_time_seconds` to at least the mount’s slew and settling time. The mount will then slew to the position where the target is expected to be that many seconds after `start_time`, and wait there until the target arrives.
 
-   If imaging starts later than that and the target has moved more than one arcminute from the waiting position, Astra first re-centres the mount on the target’s current position. This one-arcminute limit is based on angular distance, not elapsed time, so it depends on how fast the target is moving. For example, Mars would need to be about 45 minutes late to trigger re-centering, while the ISS would trigger it after only a few milliseconds.
+   Imaging can start later than planned. If the target has then moved more than one arcminute from the waiting position, Astra first re-centers the mount on the target’s current position. This limit is an angular distance, not a time. So the delay it allows depends on how fast the target moves. Mars must be about 45 minutes late before a re-center is needed. The ISS needs one after a few milliseconds.
 
 2. **Tracking.** The differential rates are applied and refreshed throughout the
    sequence, including during exposures and while each frame is written to disk.
-3. **Re-centring.** At intervals of `nonsidereal_recenter_interval` seconds the
+   The re-center interval starts counting when the rates are first applied.
+3. **Re-centering.** At intervals of `nonsidereal_recenter_interval` seconds the
    mount slews to the target's current ephemeris position. Setting the interval to
-   zero suppresses these slews and leaves the rates to work alone; it does not
+   zero suppresses these slews and leaves the rates to work alone. It does not
    disable non-sidereal tracking.
 4. **Reset.** The rates are returned to zero when the sequence ends, including on
-   error.
+   error. Astra also zeroes the rates before every slew, so a sequence that stopped
+   without its normal teardown cannot leave stale rates on the mount.
 
-### Why periodic re-centring is necessary
+### Why periodic re-centering is necessary
 
-Differential rates are open-loop velocity control: they specify how fast the mount
-should move, but never where it should be pointing. They therefore cancel the
-target's apparent motion without correcting any positional error that has already
-accumulated.
+Differential rates are open-loop velocity control. They tell the mount how fast
+to move, not where to point. So they cancel the target's apparent motion, but they
+do not correct a position error that has already built up.
 
-Because autoguiding is disabled during non-sidereal tracking, re-centring supplies
-the only positional feedback in the system. In its absence three errors grow
-unchecked.
+Autoguiding is disabled during non-sidereal tracking. Re-centering is therefore
+the only position feedback in the system. Without it, three errors grow unchecked.
 
-The initial pointing error persists. Whatever offset the pre-pointing slew leaves
-behind, whether from residuals in the pointing model, a stale ephemeris, or the
-target's motion during the slew, is preserved exactly by the rates.
+The initial pointing error persists. The pre-pointing slew leaves an offset from
+the pointing model, from a stale ephemeris, or from the target's motion during the
+slew. The rates preserve that offset exactly.
 
-Rate errors integrate into positional errors. No mount applies a commanded rate
-perfectly, and the true rate itself evolves between updates.
+Rate errors integrate into position errors. No mount applies a commanded rate
+perfectly, and the true rate changes between updates.
 
 Mechanical imperfections remain uncorrected. Periodic error, flexure and polar
 misalignment act during non-sidereal tracking exactly as they do during sidereal
 tracking.
 
-The interval trades drift against dead time, since each re-centring costs two slews
-and their settling. A few minutes is a reasonable starting point for a comet or
-asteroid; fast-moving targets require shorter intervals.
+The interval trades drift against dead time. Each re-center costs a slew and its
+settling time. A fast target gets a second, corrective slew when it moved more than
+one arcsecond during the first. A few minutes is a good starting point for a comet
+or asteroid. Fast-moving targets need shorter intervals.
 
 ### Requirements and limitations
 
@@ -195,7 +196,7 @@ asteroid; fast-moving targets require shorter intervals.
 
 ### Examples
 
-The following action tracks Saturn, re-centring every five minutes:
+The following action tracks Saturn, re-centering every five minutes:
 
 ```json
 {
