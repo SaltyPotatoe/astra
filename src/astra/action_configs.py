@@ -9,7 +9,8 @@ Key capabilities:
 
 import logging
 import typing
-from dataclasses import dataclass, field
+from dataclasses import MISSING, dataclass, field
+from dataclasses import fields as dataclass_fields
 from enum import Enum
 from pathlib import Path
 from typing import Any, ClassVar, List, Optional, Union
@@ -27,6 +28,41 @@ from astra.utils.ephemeris import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def public_fields(config) -> list:
+    """Return the fields of an action config that belong in an action value.
+
+    Class variables such as FIELD_DESCRIPTIONS and EXAMPLE_SCHEDULE, private
+    attributes, and fields that are not constructor arguments are left out.
+
+    Args:
+        config: An action config class or instance.
+
+    Returns:
+        list: The dataclass fields that a user can set in an action value.
+    """
+    return [
+        f for f in dataclass_fields(config) if f.init and not f.name.startswith("_")
+    ]
+
+
+def field_default(config, name: str):
+    """Return the declared default of an action config field.
+
+    Args:
+        config: An action config class or instance.
+        name (str): Name of the field.
+
+    Returns:
+        The default value, or None if the field has no default.
+    """
+    f = config.__dataclass_fields__[name]
+    if f.default is not MISSING:
+        return f.default
+    if f.default_factory is not MISSING:
+        return f.default_factory()
+    return None
 
 
 @dataclass
@@ -372,11 +408,22 @@ class BaseActionConfig:
             config_dict = {}
         if not isinstance(default_dict, dict):
             default_dict = {}
-        return {k: v for k, v in default_dict.items() if k in cls.__annotations__} | {
-            k: v for k, v in config_dict.items() if k in cls.__annotations__
+        keys = {f.name for f in public_fields(cls)}
+        return {k: v for k, v in default_dict.items() if k in keys} | {
+            k: v for k, v in config_dict.items() if k in keys
         }
 
-    def to_jsonable(self):
+    def to_jsonable(self) -> dict:
+        """Return this config as a JSON-serializable action value.
+
+        Only the fields a user can set are included. A nested config marked
+        with ``flatten`` metadata is merged into the parent dict, because that
+        is the layout `from_dict` reads back.
+
+        Returns:
+            dict: The action value for this config.
+        """
+
         def convert(val):
             if isinstance(val, Angle):
                 return val.deg
@@ -386,16 +433,30 @@ class BaseActionConfig:
                 return val.isot
             elif isinstance(val, Enum):
                 return val.value
+            elif isinstance(val, Path):
+                return str(val)
             elif isinstance(val, dict):
                 return {k: convert(v) for k, v in val.items()}
             elif isinstance(val, list):
                 return [convert(v) for v in val]
             elif hasattr(val, "__dataclass_fields__"):
-                return {k: convert(getattr(val, k)) for k in val.__dataclass_fields__}
+                return convert_config(val)
             else:
                 return val
 
-        return convert(self)
+        def convert_config(config) -> dict:
+            selected = public_fields(config)
+            own_names = {f.name for f in selected if not f.metadata.get("flatten")}
+            out = {}
+            for f in selected:
+                value = convert(getattr(config, f.name))
+                if f.metadata.get("flatten") and isinstance(value, dict):
+                    out.update({k: v for k, v in value.items() if k not in own_names})
+                else:
+                    out[f.name] = value
+            return out
+
+        return convert_config(self)
 
 
 @dataclass
@@ -1367,13 +1428,26 @@ class AutofocusConfig(BaseActionConfig):
         kwargs = cls.merge_config_dicts(config_dict, default_dict)
         kwargs["calibration_field"] = autofocus_calibration_field
 
-        if len(kwargs["n_exposures"]) != len(kwargs["n_steps"]):
+        n_steps = kwargs.get("n_steps")
+        if n_steps is None:
+            n_steps = field_default(cls, "n_steps")
+        n_exposures = kwargs.get("n_exposures")
+        if n_exposures is None:
+            n_exposures = field_default(cls, "n_exposures")
+
+        if isinstance(n_exposures, int):
+            # A single value means the same number of exposures for each sweep.
+            n_exposures = [n_exposures] * len(n_steps)
+        elif len(n_exposures) != len(n_steps):
             if logger is not None:
                 logger.warning(
                     "'n_exposures' length does not match 'n_steps' length. "
                     "Defaulting to 1 exposure per step."
                 )
-            kwargs["n_exposures"] = [1] * len(kwargs["n_steps"])
+            n_exposures = [1] * len(n_steps)
+
+        kwargs["n_steps"] = n_steps
+        kwargs["n_exposures"] = n_exposures
 
         return cls(**kwargs)
 
